@@ -4,6 +4,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.LinearLayout;
 
 /**
  * Hides the player's audio/video switch pill.
@@ -29,7 +30,14 @@ public final class AudioVideoPill {
             params.height = 0;
             view.setLayoutParams(params);
         }
-        view.setVisibility(View.GONE);
+
+        // In the target layout the pill doubles as a width-0/weight-1 spacer, so GONE would
+        // also pull the edge buttons together. Keep the slot and make only the pill invisible.
+        boolean spacer = params instanceof LinearLayout.LayoutParams
+                && ((LinearLayout.LayoutParams) params).weight > 0
+                && view.getParent() instanceof LinearLayout
+                && ((LinearLayout) view.getParent()).getOrientation() == LinearLayout.HORIZONTAL;
+        view.setVisibility(spacer ? View.INVISIBLE : View.GONE);
         view.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
     }
 

@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 ANDROID = "{http://schemas.android.com/apk/res/android}"
 YT = "{http://schemas.android.com/apk/res-auto}"
 root = Path(__file__).resolve().parents[1]
-bandle = root / "ym_morphe/patches/build/libs/patches-1.6.0.mpp"
+bandle = root / "ym_morphe/patches/build/libs/patches-1.6.1.mpp"
 patched_apk = Path(sys.argv[2]) if len(sys.argv) > 2 else root / "output/ym_morphe-test-unsigned.apk"
 decoded = root / "ym_morphe/patches/build/decoded"
 

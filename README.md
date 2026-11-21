@@ -30,7 +30,7 @@ cd ym_morphe
 ./gradlew :patches:buildAndroid --no-daemon
 ```
 
-出力は `ym_morphe/patches/build/libs/patches-1.6.0.mpp` です。APK 自体は同梱していません。対応する正規の APK を別途用意してください。
+出力は `ym_morphe/patches/build/libs/patches-1.6.1.mpp` です。APK 自体は同梱していません。対応する正規の APK を別途用意してください。
 
 ### 依存関係
 

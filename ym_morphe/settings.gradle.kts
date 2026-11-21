@@ -1,11 +1,6 @@
 rootProject.name = "ym_morphe"
 
 pluginManagement {
-    // Use the pinned local source checkout of the Gradle plugin when present.
-    file("../morphe-patches-gradle-plugin").let { dir ->
-        if (dir.exists()) includeBuild(dir)
-    }
-
     repositories {
         mavenLocal()
         gradlePluginPortal()

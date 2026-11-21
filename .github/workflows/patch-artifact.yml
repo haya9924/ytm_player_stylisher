@@ -87,6 +87,14 @@ jobs:
           yes | "$sdkmanager" --licenses > /dev/null || true
           "$sdkmanager" "platforms;android-36" "build-tools;36.0.0"
 
+      # Settings plugins are resolved before the main build is configured.
+      # Publish this pinned plugin and its marker into the runner's local Maven repo.
+      - name: Bootstrap Morphe Gradle plugin
+        working-directory: morphe-patches-gradle-plugin
+        shell: bash
+        run: |
+          ../ym_morphe/gradlew publishToMavenLocal --no-daemon --max-workers=2 --no-parallel --console=plain -x signPatchesSettingsPluginPluginMarkerMavenPublication -x signPluginMavenPublication
+
       - name: Build patch bundle
         working-directory: ym_morphe
         shell: bash

@@ -93,7 +93,18 @@ jobs:
         working-directory: morphe-patches-gradle-plugin
         shell: bash
         run: |
-          ../ym_morphe/gradlew publishToMavenLocal --no-daemon --max-workers=2 --no-parallel --console=plain -x signPatchesSettingsPluginPluginMarkerMavenPublication -x signPluginMavenPublication
+          # Remove the pinned upstream release-signing step for this local-only publication.
+          python3 - <<'PY'
+          from pathlib import Path
+
+          build = Path('build.gradle.kts')
+          source = build.read_text()
+          signing = 'signing {\n    useGpgCmd()\n\n    sign(publishing.publications)\n}'
+          if source.count(signing) != 1:
+              raise SystemExit('Unexpected upstream release-signing configuration')
+          build.write_text(source.replace(signing, ''))
+          PY
+          ../ym_morphe/gradlew publishToMavenLocal --no-daemon --max-workers=2 --no-parallel --console=plain
 
       - name: Build patch bundle
         working-directory: ym_morphe

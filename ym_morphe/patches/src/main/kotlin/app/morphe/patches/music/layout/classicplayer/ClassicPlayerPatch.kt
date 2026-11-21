@@ -12,7 +12,7 @@ import app.morphe.patcher.patch.resourceXml
 @Suppress("unused")
 val classicPlayerPatch = patch(
     name = "ym_morphe",
-    description = "Changes the fullscreen player artwork, spacing, title, menu icon and artwork-derived background gradient.",
+    description = "Restyles the fullscreen player and adds an option to hide the audio/video switch.",
     default = false,
 ) {
     compatibleWith(
@@ -27,6 +27,8 @@ val classicPlayerPatch = patch(
     extendWith("extensions/ym.mpe")
 
     execute {
+        installPlaybackPriorityHooks()
+        installAudioVideoPillHooks()
         // The Settings activity starts preference intents. Make our intent explicit at runtime
         // so it works with Android 14+ and with arbitrary cloned package names.
         Fingerprint(
@@ -52,7 +54,7 @@ val classicPlayerPatch = patch(
         resourceXml("res/xml/settings_headers.xml").use { settings ->
             settings.root.appendChild("Preference") {
                 setAttribute("android:key", "ym_morphe_gradient_settings")
-                setAttribute("android:title", "ym_morphe グラデーション設定")
+                setAttribute("android:title", "ym_morphe プレイヤー設定")
                 setAttribute("android:persistent", "false")
                 appendChild("intent") { setAttribute("android:action", "app.morphe.extension.ym.GRADIENT_SETTINGS") }
             }

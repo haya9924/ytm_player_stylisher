@@ -1,0 +1,8 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="app.morphe.ym.pilltest">
+    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="33" />
+    <application android:label="ym_morphe 検証用" android:theme="@android:style/Theme.Material.NoActionBar">
+        <activity android:name="app.morphe.extension.ym.GradientSettingsActivity" android:exported="false" />
+        <activity android:name="app.morphe.extension.ym.PreviewActivity" android:exported="true" />
+    </application>
+</manifest>

@@ -6,8 +6,17 @@ YouTube Music **9.30.53** 向けの独立した Morphe パッチです。バン�
 - 全画面・縮小中・ミニプレイヤーにジャケット由来のぼかし背景を追加
 - アプリ内設定で背景を調整（0%：テーマ色、100%：ぼかしたジャケット）
 - 画面復帰時の再取得と曲変更時のクロスフェード
+- [再生優先（実験的・初期オフ）](ym_morphe/NETWORK_PRIORITY.md)：再生準備・バッファ不足時に別曲の新規先読みを控える
 
 **実験的な実装です。ビルドと APK への適用は検証していますが、実機の表示・操作・端末ごとの互換性は未検証です。**
+
+## パッチをダウンロード（GitHub Actions）
+
+1. [Actions → Patch artifact](https://github.com/haya9924/ytm_player_stylisher/actions/workflows/patch-artifact.yml) で `main` の最新の成功した実行を開きます。
+2. 実行結果の **Artifacts** から `ym_morphe-<バージョン>-<コミット>` をダウンロードします（GitHub へのログインが必要）。
+3. ZIP を展開し、中の `patches-<バージョン>.mpp` を Morphe のパッチバンドルとして使います。
+
+`main` への push または手動実行でビルドし、Artifact は **30日間**保持します。配布するのは未署名の `.mpp` だけです。YouTube Music の APK は含まず、CI では APK への適用や実機再生は検証しません。
 
 ## ソースとビルド
 
@@ -21,7 +30,7 @@ cd ym_morphe
 ./gradlew :patches:buildAndroid --no-daemon
 ```
 
-出力は `ym_morphe/patches/build/libs/patches-1.5.0.mpp` です。APK 自体は同梱していません。対応する正規の APK を別途用意してください。
+出力は `ym_morphe/patches/build/libs/patches-1.6.0.mpp` です。APK 自体は同梱していません。対応する正規の APK を別途用意してください。
 
 ### 依存関係
 

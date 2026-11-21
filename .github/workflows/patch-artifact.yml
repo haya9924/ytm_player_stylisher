@@ -1,0 +1,168 @@
+name: Patch artifact
+
+# Build the ym_morphe patch bundle and upload it as a workflow artifact.
+# Actions are pinned to immutable commits:
+#   actions/checkout        d23441a48e516b6c34aea4fa41551a30e30af803 (# v6)
+#   actions/setup-java      b6effb05e454b25005698d916606bdc6ffcbf961 (# v5)
+#   actions/upload-artifact cf430e030ddbb5b0abf93d22962f4752f3646cd9 (# v7)
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build patches bundle
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Checkout morphe-patcher
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: MorpheApp/morphe-patcher
+          ref: d19545e8505e0329cc640723cb8ff91eddd3cd05
+          path: morphe-patcher
+          persist-credentials: false
+
+      - name: Checkout morphe-patches-library
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: MorpheApp/morphe-patches-library
+          ref: 11f8c7e4d9dd64e18b0594d2c7cbf09176a65327
+          path: morphe-patches-library
+          persist-credentials: false
+
+      - name: Checkout morphe-patches-gradle-plugin
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: MorpheApp/morphe-patches-gradle-plugin
+          ref: 5b7e4619931a8c78b7858e598e002222d37021b9
+          path: morphe-patches-gradle-plugin
+          persist-credentials: false
+
+      # The multiline list installs both JDKs; the last entry (21) becomes the
+      # default JAVA_HOME, while Gradle's toolchain uses 17 for compilation.
+      - name: Set up JDK 17 and 21
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: |
+            17
+            21
+
+      - name: Run Java unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          src=ym_morphe/extensions/ym/src/main/java/app/morphe/extension/ym
+          tests=tests/java/app/morphe/extension/ym
+          classes="$(mktemp -d)"
+          trap 'rm -rf "$classes"' EXIT
+          javac --release 17 -d "$classes" \
+            "$src"/{ArtworkBlur,ArtworkCrop,CacheRetentionCriteria,PlaybackPriorityState}.java \
+            "$tests"/{ArtworkBlur,ArtworkCrop,CacheRetentionCriteria,PlaybackPriorityState}Test.java
+          for test in ArtworkBlur ArtworkCrop CacheRetentionCriteria PlaybackPriorityState; do
+            java -cp "$classes" "app.morphe.extension.ym.${test}Test"
+          done
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$sdkmanager" ]; then
+            echo "::error::sdkmanager not found at $sdkmanager"
+            exit 1
+          fi
+          yes | "$sdkmanager" --licenses > /dev/null || true
+          "$sdkmanager" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Build patch bundle
+        working-directory: ym_morphe
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${JAVA_HOME_17_X64:-}" ] && [ -n "${JAVA_HOME_21_X64:-}" ]; then
+            export GRADLE_OPTS="${GRADLE_OPTS:-} -Dorg.gradle.java.installations.paths=${JAVA_HOME_17_X64},${JAVA_HOME_21_X64}"
+          fi
+          ./gradlew :patches:buildAndroid --no-daemon --max-workers=2 --no-parallel --console=plain -Pgpr.user=unused -Pgpr.key=unused
+
+      - name: Validate and stage bundle
+        id: bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          libs_dir="ym_morphe/patches/build/libs"
+          if [ ! -d "$libs_dir" ]; then
+            echo "::error::Missing build output directory $libs_dir"
+            exit 1
+          fi
+
+          bundles=()
+          while IFS= read -r file; do
+            bundles+=("$file")
+          done < <(find "$libs_dir" -maxdepth 1 -type f -name 'patches-*.mpp' | sort)
+
+          if [ "${#bundles[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one patches-*.mpp in $libs_dir, found ${#bundles[@]}"
+            printf '  %s\n' "${bundles[@]}" >&2 || true
+            exit 1
+          fi
+
+          mpp="${bundles[0]}"
+          bundle_name="$(basename "$mpp")"
+          if [[ ! "$bundle_name" =~ ^patches-([0-9A-Za-z._+-]+)\.mpp$ ]]; then
+            echo "::error::Unexpected bundle file name: $bundle_name"
+            exit 1
+          fi
+          version="${BASH_REMATCH[1]}"
+
+          declared_version="$(sed -n 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*//p' ym_morphe/gradle.properties | head -n 1 | tr -d '[:space:]')"
+          if [ -n "$declared_version" ] && [ "$declared_version" != "$version" ]; then
+            echo "::error::Bundle version $version does not match gradle.properties version $declared_version"
+            exit 1
+          fi
+
+          unzip -tq "$mpp"
+          entries="$(unzip -Z1 "$mpp")"
+          if ! grep -qxF 'classes.dex' <<< "$entries" ||
+              [ "$(grep -E '^extensions/.*\.mpe$' <<< "$entries" || true)" != 'extensions/ym.mpe' ]; then
+            echo "::error::Expected Android DEX and only the ym.mpe extension in $bundle_name"
+            exit 1
+          fi
+
+          short_sha="${GITHUB_SHA:0:7}"
+          artifact_name="ym_morphe-${version}-${short_sha}"
+
+          staging="${RUNNER_TEMP}/patch-artifact"
+          rm -rf "$staging"
+          mkdir -p "$staging"
+          cp "$mpp" "${staging}/${bundle_name}"
+
+          {
+            echo "artifact-name=${artifact_name}"
+            echo "version=${version}"
+            echo "short-sha=${short_sha}"
+            echo "mpp-path=${staging}/${bundle_name}"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Artifact: ${artifact_name}"
+          echo "Bundle:   ${staging}/${bundle_name}"
+
+      - name: Upload patch bundle
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: ${{ steps.bundle.outputs.artifact-name }}
+          path: ${{ steps.bundle.outputs.mpp-path }}
+          if-no-files-found: error
+          retention-days: 30

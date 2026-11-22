@@ -90,6 +90,26 @@ jobs:
           yes | "$sdkmanager" --licenses > /dev/null || true
           "$sdkmanager" "platforms;android-36" "build-tools;36.0.0"
 
+      - name: Prefer the Maven Central mirror on CI
+        shell: bash
+        run: |
+          set -euo pipefail
+          init_dir="${GRADLE_USER_HOME:-$HOME/.gradle}/init.d"
+          mkdir -p "$init_dir"
+          cat > "$init_dir/ym-central-mirror.gradle" <<'GRADLE'
+          def addCentralMirror = { repositories ->
+              repositories.maven {
+                  name = 'MavenCentralMirror'
+                  url = uri('https://maven-central.storage-download.googleapis.com/maven2')
+              }
+          }
+          gradle.beforeSettings { settings ->
+              addCentralMirror(settings.pluginManagement.repositories)
+              addCentralMirror(settings.dependencyResolutionManagement.repositories)
+          }
+          gradle.beforeProject { project -> addCentralMirror(project.repositories) }
+          GRADLE
+
       # Settings plugins are resolved before the main build is configured.
       # Publish this pinned plugin and its marker into the runner's local Maven repo.
       - name: Bootstrap Morphe Gradle plugin

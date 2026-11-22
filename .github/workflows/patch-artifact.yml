@@ -68,10 +68,13 @@ jobs:
           tests=tests/java/app/morphe/extension/ym
           classes="$(mktemp -d)"
           trap 'rm -rf "$classes"' EXIT
-          javac --release 17 -d "$classes" \
-            "$src"/{ArtworkBlur,ArtworkCrop,CacheRetentionCriteria,PlaybackPriorityState}.java \
-            "$tests"/{ArtworkBlur,ArtworkCrop,CacheRetentionCriteria,PlaybackPriorityState}Test.java
-          for test in ArtworkBlur ArtworkCrop CacheRetentionCriteria PlaybackPriorityState; do
+          suites=(ArtworkBlur ArtworkCrop CacheRetentionCriteria PlaybackPriorityState QualifiedPlayCounter PlaybackSessionTracker)
+          sources=()
+          for test in "${suites[@]}"; do
+            sources+=("$src/$test.java" "$tests/${test}Test.java")
+          done
+          javac --release 17 -d "$classes" "${sources[@]}"
+          for test in "${suites[@]}"; do
             java -cp "$classes" "app.morphe.extension.ym.${test}Test"
           done
 

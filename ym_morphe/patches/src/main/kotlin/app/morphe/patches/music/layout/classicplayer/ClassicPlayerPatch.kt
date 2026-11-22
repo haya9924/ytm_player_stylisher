@@ -5,6 +5,7 @@ import app.morphe.patcher.extensions.InstructionExtensions.addInstruction
 import app.morphe.patcher.patch.ApkFileType
 import app.morphe.patcher.patch.AppTarget
 import app.morphe.patcher.patch.Compatibility
+import app.morphe.patcher.patch.booleanOption
 import app.morphe.patcher.patch.patch
 import app.morphe.patcher.patch.resourceXml
 
@@ -26,9 +27,18 @@ val classicPlayerPatch = patch(
 
     extendWith("extensions/ym.mpe")
 
+    val cacheDiagnostics by booleanOption(
+        key = "cacheRetentionDiagnostics",
+        default = false,
+        title = "再生・キャッシュ診断（開発用）",
+        description = "観測用ログだけを追加します。再生回数の記録やキャッシュ設定は変更しません。",
+    )
+
     execute {
+        if (cacheDiagnostics == true) installCacheRetentionDiagnosticHooks()
         installPlaybackPriorityHooks()
         installAudioVideoPillHooks()
+        installPlayerActionMenuHook()
         // The Settings activity starts preference intents. Make our intent explicit at runtime
         // so it works with Android 14+ and with arbitrary cloned package names.
         Fingerprint(

@@ -6,6 +6,7 @@ import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -124,6 +125,53 @@ public final class PreviewActivity extends Activity {
                 throw new AssertionError("Disabled: pill properties must stay intact");
             }
         }
+
+        // Test-only mock for PlayerActionMenu: no production hook, prefs or row hiding here.
+        // The "…" button keeps a native listener and adds a separate row-actions entry.
+        TextView actionStatus = new TextView(this);
+        actionStatus.setText("未操作");
+        page.addView(actionStatus);
+
+        CheckBox unavailableToggle = new CheckBox(this);
+        unavailableToggle.setText("曲の操作を利用不可にする（元動作へ戻す）");
+        page.addView(unavailableToggle);
+
+        // The detail row already exists in the same parent as the anchor and is only expanded.
+        LinearLayout actionParent = new LinearLayout(this);
+        actionParent.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout actionRow = row();
+        actionRow.addView(edgeButton("前"), wrapParams());
+        Button more = edgeButton("…");
+        actionRow.addView(more, wrapParams());
+        actionRow.addView(edgeButton("次"), wrapParams());
+        actionParent.addView(actionRow, matchParams());
+        LinearLayout detailRow = row();
+        detailRow.addView(edgeButton("曲の操作: プレビュー行"), wrapParams());
+        detailRow.setVisibility(View.GONE);
+        actionParent.addView(detailRow, matchParams());
+        page.addView(actionParent, matchParams());
+
+        int[] originalCalls = {0};
+        View.OnClickListener original = v -> {
+            originalCalls[0]++;
+            actionStatus.setText("元の動作: 標準メニュー");
+        };
+        PlayerActionMenu.Actions actions = new PlayerActionMenu.Actions() {
+            @Override public boolean isAvailable(View anchor) {
+                return !unavailableToggle.isChecked();
+            }
+
+            @Override public void open(View anchor) {
+                detailRow.setVisibility(View.VISIBLE);
+                actionStatus.setText("曲の操作: 同じ親の行を展開");
+            }
+        };
+        // Identity contract: no original or no actions means no wrapping at all.
+        if (PlayerActionMenu.wrap(original, null) != original
+                || PlayerActionMenu.wrap(null, actions) != null) {
+            throw new AssertionError("wrap must return the original listener when nothing is added");
+        }
+        more.setOnClickListener(PlayerActionMenu.wrap(original, actions));
 
         setContentView(page);
     }

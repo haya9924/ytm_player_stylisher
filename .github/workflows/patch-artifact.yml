@@ -104,7 +104,14 @@ jobs:
               addCentralMirror(settings.pluginManagement.repositories)
               addCentralMirror(settings.dependencyResolutionManagement.repositories)
           }
-          gradle.beforeProject { project -> addCentralMirror(project.repositories) }
+          // Patch projects use settings-level repositories. Don't replace them
+          // with a project-level mirror, which would hide Google and JitPack.
+          gradle.beforeProject { project ->
+              if (project.rootProject.name == 'morphe-patches-gradle-plugin' ||
+                      project.rootProject.name == 'morphe-patcher') {
+                  addCentralMirror(project.repositories)
+              }
+          }
           GRADLE
 
       # Settings plugins are resolved before the main build is configured.

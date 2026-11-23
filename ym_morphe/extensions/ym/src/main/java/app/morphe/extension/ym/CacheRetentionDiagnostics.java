@@ -28,6 +28,7 @@ public final class CacheRetentionDiagnostics {
 
     private static final AtomicInteger watchTimeLogs = new AtomicInteger();
     private static final AtomicInteger cacheCategoriesLogged = new AtomicInteger();
+    private static final AtomicInteger cachedSpanLogs = new AtomicInteger();
 
     private CacheRetentionDiagnostics() {}
 
@@ -39,6 +40,13 @@ public final class CacheRetentionDiagnostics {
             }
         } catch (RuntimeException ignored) {
             // Diagnostics must never disturb playback.
+        }
+    }
+
+    /** Observes an existing lookup returning a cached span, not bytes consumed by playback. */
+    public static void alternateCachedSpan() {
+        if (cachedSpanLogs.getAndUpdate(value -> Math.min(value + 1, 32)) < 32) {
+            log("alternate cache: cached span returned");
         }
     }
 
@@ -58,7 +66,7 @@ public final class CacheRetentionDiagnostics {
             }
             if ("sgu".equals(name)) {
                 logOnce(CACHE_SIMPLE, CACHE_SIMPLE_MESSAGE);
-            } else if ("auge".equals(name)) {
+            } else if ("augy".equals(name)) {
                 logOnce(CACHE_ALTERNATE, CACHE_ALTERNATE_MESSAGE);
             } else {
                 logOnce(CACHE_UNKNOWN, CACHE_UNKNOWN_MESSAGE);

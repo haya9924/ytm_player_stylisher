@@ -108,6 +108,7 @@ internal fun installNativeCacheRetentionHooks(apply: Boolean) {
     provider2.addInstruction(scopedCall + 2,
         "invoke-static {v1, v0}, $POLICY->scopedBackend(Ljava/lang/Object;Ljava/lang/Object;)V")
     provider2.addInstruction(scopedCall - 2, "invoke-static {}, $POLICY->beginScopeRead()V")
+    if (apply) eviction.addInstruction(capacity + 1, "invoke-static {}, $POLICY->capacityVictimRemoved()V")
     val selector = if (apply) "selectCapacityVictim" else "observeCapacityVictim"
     eviction.addInstructions(capacity - 1, """
         invoke-static {p0, v2, v0}, $POLICY->$selector(Ljava/lang/Object;Ljava/util/LinkedHashSet;Ljava/lang/String;)Ljava/lang/String;

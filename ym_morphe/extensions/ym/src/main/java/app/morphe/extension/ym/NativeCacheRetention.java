@@ -24,6 +24,10 @@ public final class NativeCacheRetention {
     private static final AtomicInteger matchingReads = new AtomicInteger();
     private static final ThreadLocal<WeakReference<Object>> capacityWriter = new ThreadLocal<>();
     private static final ThreadLocal<Long> scopeRead = new ThreadLocal<>();
+    private static final ThreadLocal<Spared> pendingSpare = new ThreadLocal<>();
+    private static volatile Spared spared;
+    private static volatile String currentTrack;
+    private static volatile String currentAccount;
     private static volatile Scope scope;
     private static volatile long scopeGeneration;
     private static volatile boolean observedBinding;
@@ -77,8 +81,41 @@ public final class NativeCacheRetention {
     public static synchronized void invalidate() {
         scope = null;
         scopeGeneration++;
+        spared = null;
         qualified.clear();
         qualifiedAccount = null;
+    }
+
+    static void currentPlayback(String account, String track) {
+        currentTrack = null;
+        currentAccount = account;
+        currentTrack = track;
+    }
+
+    static boolean badgeMayBeActive() {
+        return scope != null && NativeCacheRetention.spared != null;
+    }
+
+    public static boolean currentTrackSpared() {
+        Spared hit = spared;
+        Scope current = scope;
+        if (hit == null || current == null || hit.generation != scopeGeneration ||
+                current.backend.get() == null || current.backend.get() != hit.backend.get() ||
+                !current.account.equals(currentAccount) || !hit.track.equals(currentTrack)) return false;
+        long age = SystemClock.elapsedRealtime() - hit.confirmedAt;
+        return hit.confirmedAt >= 0 && age >= 0 && age < 5_000;
+    }
+
+    private static final class Spared {
+        final WeakReference<Object> backend;
+        final String track;
+        final long generation;
+        volatile long confirmedAt = -1;
+        Spared(Object backend, String track, long generation) {
+            this.backend = new WeakReference<>(backend);
+            this.track = track;
+            this.generation = generation;
+        }
     }
 
     static long generation() {
@@ -109,6 +146,9 @@ public final class NativeCacheRetention {
             Fields fields = current.fields;
             if (decodedKey.getClass() != fields.keyClass) return;
             String key = (String) fields.keyId.get(decodedKey);
+            Spared hit = spared;
+            if (hit != null && hit.generation == scopeGeneration && hit.backend.get() == backend
+                    && hit.track.equals(key)) hit.confirmedAt = SystemClock.elapsedRealtime();
             if (current.prefers(key, SystemClock.elapsedRealtime())) {
                 report(matchingReads, "preferred document matched native cached lookup");
             }
@@ -132,9 +172,17 @@ public final class NativeCacheRetention {
 
     public static void endCapacityCall() {
         capacityWriter.remove();
+        pendingSpare.remove();
+    }
+
+    public static void capacityVictimRemoved() {
+        Spared decision = pendingSpare.get();
+        pendingSpare.remove();
+        if (decision != null && decision.generation == scopeGeneration) spared = decision;
     }
 
     private static String choose(Object backend, LinkedHashSet<?> nativeOrder, String original, boolean apply) {
+        pendingSpare.remove();
         WeakReference<Object> writer = capacityWriter.get();
         capacityWriter.remove();
         if (writer == null || writer.get() != backend) return original;
@@ -159,6 +207,7 @@ public final class NativeCacheRetention {
                 if (!fields.audioOnly(entries, (String) key)) continue;
                 if (scope != current) return original;
                 report(reports, apply ? "capacity preferred entry spared" : "capacity would spare preferred entry");
+                if (apply) pendingSpare.set(new Spared(backend, original, scopeGeneration));
                 return apply ? (String) key : original;
             }
         } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {

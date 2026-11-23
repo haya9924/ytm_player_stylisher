@@ -20,6 +20,7 @@ public final class ScopedPlayHost {
         synchronized (LOCK) {
             ScopedPlaybackRecordingBridge.release(null);
             admitted.clear();
+            NativeCacheRetention.currentPlayback(null, null);
             pending = new WeakReference<>(client);
         }
     }
@@ -55,8 +56,11 @@ public final class ScopedPlayHost {
                 Object identity = fields.account.get(fresh);
                 String account = accountKey(identity);
                 if (account == null) return;
-                ScopedPlaybackRecordingBridge.admit(fresh, account,
-                        (String) fields.track.get(fresh), (String) fields.cpn.get(fresh));
+                String track = (String) fields.track.get(fresh);
+                String session = (String) fields.cpn.get(fresh);
+                if (!QualifiedPlayCounter.isValidId(track) || !QualifiedPlayCounter.isValidId(session)) return;
+                ScopedPlaybackRecordingBridge.admit(fresh, account, track, session);
+                NativeCacheRetention.currentPlayback(account, track);
                 admitted = new WeakReference<>(fresh);
                 localSample.set(fresh);
             } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
@@ -95,6 +99,7 @@ public final class ScopedPlayHost {
             pending.clear();
             admitted.clear();
             ScopedPlaybackRecordingBridge.release(null);
+            NativeCacheRetention.currentPlayback(null, null);
             NativeCacheRetention.invalidate();
         }
     }
@@ -120,7 +125,10 @@ public final class ScopedPlayHost {
     public static void release(Object client) {
         synchronized (LOCK) {
             if (pending.get() == client) pending.clear();
-            if (admitted.get() == client) admitted.clear();
+            if (admitted.get() == client) {
+                admitted.clear();
+                NativeCacheRetention.currentPlayback(null, null);
+            }
             ScopedPlaybackRecordingBridge.release(client);
         }
     }

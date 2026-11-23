@@ -52,7 +52,10 @@ val classicPlayerPatch = patch(
         check(capacityRetention != true || experimentalRecording == true) {
             "Native cache retention requires scoped playback recording"
         }
-        if (cacheDiagnostics == true) installCacheRetentionDiagnosticHooks()
+        if (cacheDiagnostics == true) {
+            installCacheRetentionDiagnosticHooks()
+            installPlaybackRestoreDiagnosticHooks()
+        }
         if (experimentalRecording == true) installScopedPlayRecordingHooks()
         if (experimentalRecording == true && (capacityRetention == true || cacheDiagnostics == true)) {
             installNativeCacheRetentionHooks(apply = capacityRetention == true)

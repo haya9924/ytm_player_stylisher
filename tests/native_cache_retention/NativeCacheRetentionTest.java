@@ -48,6 +48,7 @@ public final class NativeCacheRetentionTest {
 
     public static void main(String[] args) {
         observeAndApply();
+        badgeRequiresCompletedEvictionAndHit();
         nativeGuards();
         lookupBound();
         mixedFormats();
@@ -57,6 +58,36 @@ public final class NativeCacheRetentionTest {
         bindingGuards();
         noMutation();
         System.out.println("NativeCacheRetention tests passed");
+    }
+
+    private static void badgeRequiresCompletedEvictionAndHit() {
+        reset();
+        augy backend = audioPair();
+        bind("acct", backend);
+        qualify("acct", "hot");
+        try {
+            Method current = NativeCacheRetention.class.getDeclaredMethod("currentPlayback", String.class, String.class);
+            current.setAccessible(true);
+            current.invoke(null, "acct", "hot");
+            NativeCacheRetention.capacityCall(backend, 1);
+            NativeCacheRetention.observeCapacityVictim(backend, backend.m, "hot");
+            NativeCacheRetention.capacityVictimRemoved();
+            NativeCacheRetention.cachedLookup(backend, new audf("hot"));
+            check(!NativeCacheRetention.currentTrackSpared(), "shadow does not earn the mark");
+            NativeCacheRetention.capacityCall(backend, 1);
+            check("cold".equals(NativeCacheRetention.selectCapacityVictim(backend, backend.m, "hot")), "apply selects cold");
+            check(!NativeCacheRetention.currentTrackSpared(), "selection alone is not confirmation");
+            NativeCacheRetention.capacityVictimRemoved();
+            check(!NativeCacheRetention.currentTrackSpared(), "need a subsequent native hit");
+            NativeCacheRetention.cachedLookup(backend, new audf("hot"));
+            check(NativeCacheRetention.currentTrackSpared(), "same track and backend are confirmed");
+            current.invoke(null, "acct", "cold");
+            check(!NativeCacheRetention.currentTrackSpared(), "another track never inherits the badge");
+            NativeCacheRetention.invalidate();
+            check(!NativeCacheRetention.currentTrackSpared(), "invalidation hides the badge");
+        } catch (ReflectiveOperationException e) {
+            throw new AssertionError(e);
+        }
     }
 
     private static void observeAndApply() {

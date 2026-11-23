@@ -29,6 +29,11 @@ public final class PlayerActionMenu {
     /** Preserves the native registration until a verified action-row provider is available. */
     public static void bind(View anchor, View.OnClickListener original) {
         anchor.setOnClickListener(original);
+        // Additive, non-interactive hint only; the native listener and row stay as registered.
+        try {
+            OverflowCacheBadge.attach(anchor);
+        } catch (RuntimeException ignored) {
+        }
     }
 
     /**

@@ -16,7 +16,7 @@ trap 'rm -rf "$work"' EXIT
 mkdir "$work/classes" "$work/dex"
 
 javac -J-Xmx256m --release 8 -classpath "$platform" -d "$work/classes" \
-    "$here/PreviewActivity.java" "$java_src"/{AudioVideoPill,CacheRetentionCriteria,CacheRetentionPreferences,GradientSettingsActivity,PlaybackNetworkPolicy,PlaybackPriorityState,PlayerActionMenu}.java
+    "$here/PreviewActivity.java" "$java_src"/*.java
 jar cf "$work/classes.jar" -C "$work/classes" .
 "$bin/d8" -JXmx256m --thread-count 1 --min-api 26 --lib "$platform" --output "$work/dex" "$work/classes.jar"
 "$bin/aapt2" link -I "$platform" --manifest "$here/AndroidManifest.xml" -o "$work/base.apk"

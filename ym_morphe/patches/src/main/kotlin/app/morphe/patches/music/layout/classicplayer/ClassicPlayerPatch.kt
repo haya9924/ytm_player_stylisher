@@ -48,7 +48,15 @@ val classicPlayerPatch = patch(
         description = "曲別の再生記録が必要です。標準キャッシュの容量不足時だけ削除候補を調整します。",
     )
 
+    val lowDataResume by booleanOption(
+        key = "lowDataPlaybackResume",
+        default = false,
+        title = "前回の再生を少ない通信で再開する（実験的）",
+        description = "端末に保存済みのキューを一時停止状態で復元できた場合、追加のサーバーキュー取得を省きます。",
+    )
+
     execute {
+        if (lowDataResume == true) installLowDataPlaybackResumeHook()
         check(capacityRetention != true || experimentalRecording == true) {
             "Native cache retention requires scoped playback recording"
         }

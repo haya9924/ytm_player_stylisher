@@ -53,10 +53,12 @@ public final class ScopedPlayHost {
                 pending.clear();
                 if (fields == null) fields = new Fields(fresh.getClass());
                 Object identity = fields.account.get(fresh);
-                if (identity == null || !"agan".equals(identity.getClass().getName())) return;
-                Method incognito = identity.getClass().getMethod("g");
-                if (!Boolean.FALSE.equals(incognito.invoke(identity))) return;
-                String account = (String) identity.getClass().getMethod("d").invoke(identity);
+                if (identity == null || !"agbn".equals(identity.getClass().getName())) return;
+                // agbn is package-private; use the public contract for reflective invocation.
+                Class<?> identityContract = identity.getClass().getSuperclass();
+                if (identityContract == null || !"agan".equals(identityContract.getName())) return;
+                if (!Boolean.FALSE.equals(identityContract.getMethod("g").invoke(identity))) return;
+                String account = (String) identityContract.getMethod("d").invoke(identity);
                 if (!QualifiedPlayCounter.isValidId(account) || account.startsWith("PRIMORDIAL-")) return;
                 ScopedPlaybackRecordingBridge.admit(fresh, account,
                         (String) fields.track.get(fresh), (String) fields.cpn.get(fresh));

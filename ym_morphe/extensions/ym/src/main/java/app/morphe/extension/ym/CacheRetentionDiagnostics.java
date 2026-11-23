@@ -64,6 +64,9 @@ public final class CacheRetentionDiagnostics {
     /** Sentinel until the first sample so an early boot clock cannot suppress it. */
     private static final AtomicLong uidTrafficLastSampleMs = new AtomicLong(-1L);
 
+    /** Cumulative bytes reported as delivered from an already selected data source. */
+    private static final AtomicLong cachedDeliveredBytes = new AtomicLong();
+
     /** Diagnostic candidate only: the latest locally created stats2 object, weakly held. */
     private static volatile WeakReference<Object> freshStats2Candidate =
             new WeakReference<>(null);
@@ -133,7 +136,10 @@ public final class CacheRetentionDiagnostics {
      * Samples this process uid's already accumulated traffic counters for matched
      * A/B comparison. The raw uid is never logged, only aggregate bytes, at most
      * once per 5000ms and at most 32 times per process. No cache or network work
-     * is added: the platform counters are read only.
+     * is added: the platform counters are read only. The extra cachedDelivered field
+     * is the cumulative total reported to {@link #cachedBytesDelivered(int)} for the
+     * currently selected data source; it is generic selected-source accounting and is
+     * not proof that the delivered bytes are audio.
      */
     public static void sampleUidTraffic() {
         try {
@@ -151,7 +157,24 @@ public final class CacheRetentionDiagnostics {
                 log("uid traffic unavailable");
                 return;
             }
-            log("uid traffic: rx=" + receivedBytes + " tx=" + transmittedBytes);
+            log("uid traffic: rx=" + receivedBytes + " tx=" + transmittedBytes
+                    + " cachedDelivered=" + cachedDeliveredBytes.get());
+        } catch (RuntimeException ignored) {
+            // Diagnostics must never disturb playback.
+        }
+    }
+
+    /**
+     * Accumulates bytes already delivered by the currently selected data source. Only
+     * positive values are counted and the total saturates at Long.MAX_VALUE, so the
+     * figure stays a generic selected-source total, not evidence about audio content.
+     * Nothing is logged here and no traffic or files are touched.
+     */
+    public static void cachedBytesDelivered(int bytes) {
+        if (bytes <= 0) return;
+        try {
+            cachedDeliveredBytes.getAndUpdate(total ->
+                    total > Long.MAX_VALUE - bytes ? Long.MAX_VALUE : total + bytes);
         } catch (RuntimeException ignored) {
             // Diagnostics must never disturb playback.
         }

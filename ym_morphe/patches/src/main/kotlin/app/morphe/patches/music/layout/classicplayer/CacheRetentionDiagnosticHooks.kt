@@ -105,6 +105,17 @@ internal fun installCacheRetentionDiagnosticHooks() {
     val stats2Register =
         (stats2CreationInstructions[stats2Admission - 1] as OneRegisterInstruction).registerA
     check(stats2Register == 3) { "Cache diagnostics: unsupported fresh stats2 register" }
+    val read = Fingerprint(definingClass = "Lsga;", name = "a", returnType = "I",
+        parameters = listOf("[B", "I", "I")).method
+    val readCode = read.implementation!!.instructions
+    val delivered = readCode.indices.single { i ->
+        i > 0 && readCode[i].opcode == Opcode.IPUT_WIDE &&
+            (readCode[i] as ReferenceInstruction).reference.toString() == "Lsga;->t:J" &&
+            readCode[i - 1].opcode == Opcode.ADD_LONG_2ADDR
+    }
+    check(read.implementation!!.registerCount == 15)
+    // Only the branch where Lsga.k() selects the cache data source increments t.
+    read.addInstruction(delivered + 1, "invoke-static {v1}, $DIAGNOSTICS->cachedBytesDelivered(I)V")
     watch.addInstruction(0, "invoke-static {}, $DIAGNOSTICS->watchTimeCallback()V")
     progressing.addInstruction(0, "invoke-static {}, $DIAGNOSTICS->playerProgressing()V")
     progress.addInstructions(dispatch + 1, """

@@ -53,9 +53,35 @@ internal fun installCacheRetentionDiagnosticHooks() {
         (instruction as? com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction)
             ?.reference?.toString() == "Lbbwy;->n(Lazmp;)V"
     }.index
+    val stats2Time = Fingerprint(
+        definingClass = "Lbbxt;", name = "t", returnType = "V", parameters = listOf("Lazmp;"),
+    ).method
+    val stats2TimeInstructions = stats2Time.implementation!!.instructions
+    val accumulated = stats2TimeInstructions.indices.singleOrNull { index ->
+        stats2TimeInstructions[index].opcode == Opcode.IPUT_WIDE &&
+            (stats2TimeInstructions[index] as com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction)
+                .reference.toString() == "Lbbxt;->u:J" &&
+            index > 0 && stats2TimeInstructions[index - 1].opcode == Opcode.ADD_LONG_2ADDR
+    } ?: error("Cache diagnostics: unsupported stats2 watch time accumulation")
+    val stats2Dispatch = Fingerprint(
+        definingClass = "Lbbwy;", name = "n", returnType = "V", parameters = listOf("Lazmp;"),
+    ).method
+    val stats2DispatchInstructions = stats2Dispatch.implementation!!.instructions
+    val stats2Call = stats2DispatchInstructions.indices.singleOrNull { index ->
+        stats2DispatchInstructions[index].opcode == Opcode.INVOKE_VIRTUAL &&
+            (stats2DispatchInstructions[index] as com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction)
+                .reference.toString() == "Lbbxt;->t(Lazmp;)V"
+    } ?: error("Cache diagnostics: unsupported stats2 progress dispatch")
+    check(stats2DispatchInstructions[stats2Call + 1].opcode != Opcode.MOVE_RESULT) {
+        "Cache diagnostics: unsupported stats2 progress consume"
+    }
     watch.addInstruction(0, "invoke-static {}, $DIAGNOSTICS->watchTimeCallback()V")
     progressing.addInstruction(0, "invoke-static {}, $DIAGNOSTICS->playerProgressing()V")
     progress.addInstruction(dispatch + 1, "invoke-static {}, $DIAGNOSTICS->playerProgressSample()V")
+    stats2Time.addInstruction(accumulated + 1,
+        "invoke-static {}, $DIAGNOSTICS->stats2Accumulated()V")
+    stats2Dispatch.addInstruction(stats2Call + 1,
+        "invoke-static {}, $DIAGNOSTICS->stats2Dispatched()V")
     alternate.replaceInstruction(hit, "invoke-static {}, $DIAGNOSTICS->alternateCachedSpan()V")
     alternate.addInstruction(hit + 1, "return-object v4")
     for ((index, register) in returns.asReversed()) {

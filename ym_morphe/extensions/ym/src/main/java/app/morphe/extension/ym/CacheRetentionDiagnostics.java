@@ -31,6 +31,8 @@ public final class CacheRetentionDiagnostics {
     private static final AtomicInteger cachedSpanLogs = new AtomicInteger();
     private static final AtomicInteger progressingLogs = new AtomicInteger();
     private static final AtomicInteger progressSampleLogs = new AtomicInteger();
+    private static final AtomicInteger stats2AccumulatedLogs = new AtomicInteger();
+    private static final AtomicInteger stats2DispatchedLogs = new AtomicInteger();
 
     private CacheRetentionDiagnostics() {}
 
@@ -51,6 +53,16 @@ public final class CacheRetentionDiagnostics {
 
     public static void playerProgressSample() {
         logBounded(progressSampleLogs, "local director progress dispatched");
+    }
+
+    /** Observes the native stats2 watch time total being advanced, not track identity. */
+    public static void stats2Accumulated() {
+        logBounded(stats2AccumulatedLogs, "native stats2 watch time advanced");
+    }
+
+    /** Observes an already dispatched native stats2 progress event. */
+    public static void stats2Dispatched() {
+        logBounded(stats2DispatchedLogs, "native stats2 progress dispatched");
     }
 
     private static void logBounded(AtomicInteger count, String message) {

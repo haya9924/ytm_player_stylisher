@@ -57,13 +57,23 @@ internal fun installNativeCacheRetentionHooks(apply: Boolean) {
         writeCode[i].opcode == Opcode.INVOKE_INTERFACE &&
             (writeCode[i] as ReferenceInstruction).reference.toString() == "Lauge;->x()V"
     }
+    val budgetComparison = writeCode.indices.single { i ->
+        i + 3 < writeCode.size && writeCode[i].opcode == Opcode.INVOKE_INTERFACE &&
+            (writeCode[i] as ReferenceInstruction).reference.toString() == "Laudz;->a(J)J" &&
+            writeCode[i + 1].opcode == Opcode.MOVE_RESULT_WIDE &&
+            writeCode[i + 2].opcode == Opcode.CMP_LONG &&
+            (writeCode[i + 2] as OneRegisterInstruction).registerA == 15 &&
+            writeCode[i + 3].opcode == Opcode.IF_GTZ
+    } + 3
+    check(budgetComparison < request)
     val cleanup = writeCode.withIndex().filter { it.index > request && it.value.opcode == Opcode.MOVE_EXCEPTION }
     check(cleanup.size == 2)
     cleanup.asReversed().forEach { write.addInstruction(it.index + 1,
         "invoke-static {}, $POLICY->endCapacityCall()V") }
     write.addInstruction(request + 1, "invoke-static {}, $POLICY->endCapacityCall()V")
-    // v1 is the receiver of the original write (p0 is copied here at entry).
-    write.addInstruction(request, "invoke-static {v1}, $POLICY->capacityCall(Ljava/lang/Object;)V")
+    // Native used+requested vs budget, not later opportunistic reclamation.
+    write.addInstruction(budgetComparison,
+        "invoke-static {v1, v15}, $POLICY->capacityCall(Ljava/lang/Object;I)V")
     lookup.addInstruction(cached + 2,
         "invoke-static/range {p0 .. p1}, $POLICY->cachedLookup(Ljava/lang/Object;Ljava/lang/Object;)V")
     provider.addInstruction(returned + 1,

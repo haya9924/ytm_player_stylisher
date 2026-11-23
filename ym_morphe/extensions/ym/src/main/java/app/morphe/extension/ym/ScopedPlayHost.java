@@ -79,7 +79,8 @@ public final class ScopedPlayHost {
         try {
             if (previous != null && next != null) {
                 Class<?> type = Class.forName("agcx", false, previous.getClass().getClassLoader());
-                Method identity = type.getMethod("f");
+                Method identity = type.getDeclaredMethod("f");
+                identity.setAccessible(true);
                 Object before = identity.invoke(previous);
                 if (before != null && before == identity.invoke(next)) return;
             }

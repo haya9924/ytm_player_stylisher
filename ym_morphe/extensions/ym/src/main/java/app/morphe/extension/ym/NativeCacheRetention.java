@@ -109,8 +109,9 @@ public final class NativeCacheRetention {
         return choose(backend, nativeOrder, original, false);
     }
 
-    public static void capacityCall(Object writer) {
-        capacityWriter.set(new WeakReference<>(writer));
+    public static void capacityCall(Object writer, int excessComparison) {
+        if (excessComparison > 0) capacityWriter.set(new WeakReference<>(writer));
+        else capacityWriter.remove();
     }
 
     public static void endCapacityCall() {

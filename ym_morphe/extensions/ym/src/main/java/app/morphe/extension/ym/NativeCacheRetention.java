@@ -23,6 +23,7 @@ public final class NativeCacheRetention {
     private static final AtomicInteger qualifiedReports = new AtomicInteger();
     private static final AtomicInteger matchingReads = new AtomicInteger();
     private static final ThreadLocal<WeakReference<Object>> capacityWriter = new ThreadLocal<>();
+    private static final ThreadLocal<Long> scopeRead = new ThreadLocal<>();
     private static volatile Scope scope;
     private static volatile long scopeGeneration;
     private static volatile boolean observedBinding;
@@ -31,8 +32,15 @@ public final class NativeCacheRetention {
 
     private NativeCacheRetention() {}
 
+    public static void beginScopeRead() {
+        scopeRead.set(scopeGeneration);
+    }
+
     /** Called only with the original identity argument and cache returned to the native player. */
     public static synchronized void scopedBackend(Object identity, Object backend) {
+        Long began = scopeRead.get();
+        scopeRead.remove();
+        if (began == null || began != scopeGeneration) return;
         observedBinding = true;
         try {
             String account = ScopedPlayHost.accountKey(identity);

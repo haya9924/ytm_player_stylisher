@@ -24,6 +24,10 @@ internal fun installNativeCacheRetentionHooks(apply: Boolean) {
             body[index + 1].opcode == Opcode.MOVE_RESULT_OBJECT &&
             (body[index + 1] as OneRegisterInstruction).registerA == 0
     } + 1
+    val accountRead = (maxOf(0, returned - 6) until returned).single { i ->
+        body[i].opcode == Opcode.INVOKE_INTERFACE && (body[i] as ReferenceInstruction)
+            .reference.toString() == "Lawye;->e()Lawyd;"
+    }
     val eviction = Fingerprint(definingClass = "Laugy;", name = "x", returnType = "V",
         parameters = emptyList(), filters = listOf(string("m.noopEvict"))).method
     val implementation = eviction.implementation!!
@@ -78,6 +82,7 @@ internal fun installNativeCacheRetentionHooks(apply: Boolean) {
         "invoke-static/range {p0 .. p1}, $POLICY->cachedLookup(Ljava/lang/Object;Ljava/lang/Object;)V")
     provider.addInstruction(returned + 1,
         "invoke-static {v2, v0}, $POLICY->scopedBackend(Ljava/lang/Object;Ljava/lang/Object;)V")
+    provider.addInstruction(accountRead, "invoke-static {}, $POLICY->beginScopeRead()V")
     val selector = if (apply) "selectCapacityVictim" else "observeCapacityVictim"
     eviction.addInstructions(capacity - 1, """
         invoke-static {p0, v2, v0}, $POLICY->$selector(Ljava/lang/Object;Ljava/util/LinkedHashSet;Ljava/lang/String;)Ljava/lang/String;

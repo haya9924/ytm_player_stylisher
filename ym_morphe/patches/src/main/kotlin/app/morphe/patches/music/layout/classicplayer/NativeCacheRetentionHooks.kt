@@ -80,14 +80,16 @@ internal fun installNativeCacheRetentionHooks(apply: Boolean) {
         writeCode[i].opcode == Opcode.INVOKE_INTERFACE &&
             (writeCode[i] as ReferenceInstruction).reference.toString() == "Lauge;->x()V"
     }
-    val budgetComparison = writeCode.indices.single { i ->
-        i + 3 < writeCode.size && writeCode[i].opcode == Opcode.INVOKE_INTERFACE &&
-            (writeCode[i] as ReferenceInstruction).reference.toString() == "Laudz;->a(J)J" &&
-            writeCode[i + 1].opcode == Opcode.MOVE_RESULT_WIDE &&
-            writeCode[i + 2].opcode == Opcode.CMP_LONG &&
-            (writeCode[i + 2] as OneRegisterInstruction).registerA == 15 &&
-            writeCode[i + 3].opcode == Opcode.IF_GTZ
-    } + 3
+    val budgetComparison = writeCode.indices.mapNotNull { i ->
+        if (i + 3 >= writeCode.size || writeCode[i].opcode != Opcode.INVOKE_INTERFACE ||
+            (writeCode[i] as ReferenceInstruction).reference.toString() != "Laudz;->a(J)J" ||
+            writeCode[i + 1].opcode != Opcode.MOVE_RESULT_WIDE) return@mapNotNull null
+        val observed = (writeCode[i + 2] as? ReferenceInstruction)?.reference?.toString()
+            ?.endsWith("CacheRetentionDiagnostics;->capacityBudgetPacked(JIJ)V") == true
+        val cmp = i + if (observed) 3 else 2
+        (cmp + 1).takeIf { it < writeCode.size && writeCode[cmp].opcode == Opcode.CMP_LONG &&
+            (writeCode[cmp] as OneRegisterInstruction).registerA == 15 && writeCode[it].opcode == Opcode.IF_GTZ }
+    }.single()
     check(budgetComparison < request)
     val cleanup = writeCode.withIndex().filter { it.index > request && it.value.opcode == Opcode.MOVE_EXCEPTION }
     check(cleanup.size == 2)

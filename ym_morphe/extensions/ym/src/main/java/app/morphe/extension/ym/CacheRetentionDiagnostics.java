@@ -1,9 +1,13 @@
 package app.morphe.extension.ym;
 
+import android.net.TrafficStats;
+import android.os.Process;
+import android.os.SystemClock;
 import android.util.Log;
 
 import java.lang.ref.WeakReference;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Fixed, low-volume diagnostics for cache retention. Only constant text is
@@ -37,14 +41,121 @@ public final class CacheRetentionDiagnostics {
     private static final AtomicInteger freshStats2AccumulatedLogs = new AtomicInteger();
     private static final AtomicInteger stats2DispatchedLogs = new AtomicInteger();
     private static final AtomicInteger capacityRemovalLogs = new AtomicInteger();
+    private static final AtomicInteger capacityAccountingLogs = new AtomicInteger();
 
     private static final int STATS2_ACCUMULATED_LIMIT = 32;
+
+    /** Unconditional capacity budget lines, kept small so the probe stays quiet. */
+    private static final int CAPACITY_BUDGET_LOG_LIMIT = 4;
+    /** Additional lines emitted only when the over-budget state flips. */
+    private static final int CAPACITY_PRESSURE_LOG_LIMIT = 16;
+    private static final int PRESSURE_UNKNOWN = 0;
+    private static final int PRESSURE_WITHIN_BUDGET = 1;
+    private static final int PRESSURE_OVER_BUDGET = 2;
+
+    private static final int UID_TRAFFIC_LOG_LIMIT = 32;
+    private static final long UID_TRAFFIC_MIN_INTERVAL_MS = 5000L;
+
+    private static final AtomicInteger capacityBudgetLogs = new AtomicInteger();
+    private static final AtomicInteger capacityPressureLogs = new AtomicInteger();
+    private static final AtomicInteger capacityPressureState = new AtomicInteger(PRESSURE_UNKNOWN);
+
+    private static final AtomicInteger uidTrafficLogs = new AtomicInteger();
+    /** Sentinel until the first sample so an early boot clock cannot suppress it. */
+    private static final AtomicLong uidTrafficLastSampleMs = new AtomicLong(-1L);
 
     /** Diagnostic candidate only: the latest locally created stats2 object, weakly held. */
     private static volatile WeakReference<Object> freshStats2Candidate =
             new WeakReference<>(null);
 
     private CacheRetentionDiagnostics() {}
+
+    /**
+     * Observes an already known capacity budget comparison. Only aggregate byte
+     * counts and the over-budget flag are logged; negative or overflowing inputs
+     * are rejected without logging. The first four calls log, later calls log only
+     * when the pressure state changes, so volume is bounded by 4 + 16 lines.
+     */
+    private static final ThreadLocal<Long> priorCapacity = new ThreadLocal<>();
+
+    public static void capacityBefore(long before) {
+        if (capacityAccountingLogs.get() < 16) priorCapacity.set(before);
+    }
+
+    public static void capacityAfter(long after) {
+        Long before = priorCapacity.get();
+        priorCapacity.remove();
+        if (before != null) capacityAccounting(before, after);
+    }
+
+    private static void capacityAccounting(long before, long after) {
+        if (before < 0L || after < 0L) return;
+        try {
+            if (capacityAccountingLogs.getAndUpdate(n -> Math.min(n + 1, 16)) < 16) {
+                log("capacity accounting: before=" + before + " after=" + after);
+            }
+        } catch (RuntimeException ignored) {
+            // Read-only probe.
+        }
+    }
+
+    public static void capacityBudgetPacked(long requestedTotal, int unused, long limitBytes) {
+        try {
+            if (requestedTotal < 0L || limitBytes < 0L) return;
+            long remainingHeadroomBytes = limitBytes - requestedTotal;
+            // Both operands are non-negative, so the comparison cannot overflow.
+            boolean overBudget = requestedTotal > limitBytes;
+
+            int budgetCount = capacityBudgetLogs.getAndUpdate(
+                    value -> Math.min(value + 1, CAPACITY_BUDGET_LOG_LIMIT));
+            boolean firstSample = budgetCount < CAPACITY_BUDGET_LOG_LIMIT;
+
+            int state = overBudget ? PRESSURE_OVER_BUDGET : PRESSURE_WITHIN_BUDGET;
+            boolean stateChanged = capacityPressureState.getAndSet(state) != state;
+            // The first lines already report the current state, so they must not
+            // consume the budget reserved for later transitions.
+            boolean pressureSample = !firstSample && stateChanged &&
+                    capacityPressureLogs.getAndUpdate(
+                            value -> Math.min(value + 1, CAPACITY_PRESSURE_LOG_LIMIT))
+                            < CAPACITY_PRESSURE_LOG_LIMIT;
+
+            if (!firstSample && !pressureSample) return;
+            log("capacity budget: requiredTotal=" + requestedTotal
+                    + " limit=" + limitBytes
+                    + " headroom=" + remainingHeadroomBytes
+                    + " overBudget=" + overBudget);
+        } catch (RuntimeException ignored) {
+            // Diagnostics must never disturb playback.
+        }
+    }
+
+    /**
+     * Samples this process uid's already accumulated traffic counters for matched
+     * A/B comparison. The raw uid is never logged, only aggregate bytes, at most
+     * once per 5000ms and at most 32 times per process. No cache or network work
+     * is added: the platform counters are read only.
+     */
+    public static void sampleUidTraffic() {
+        try {
+            long nowMs = SystemClock.elapsedRealtime();
+            long lastMs = uidTrafficLastSampleMs.get();
+            if (lastMs >= 0L && nowMs - lastMs < UID_TRAFFIC_MIN_INTERVAL_MS) return;
+            if (!uidTrafficLastSampleMs.compareAndSet(lastMs, nowMs)) return;
+            if (uidTrafficLogs.getAndUpdate(
+                    value -> Math.min(value + 1, UID_TRAFFIC_LOG_LIMIT))
+                    >= UID_TRAFFIC_LOG_LIMIT) return;
+
+            long receivedBytes = TrafficStats.getUidRxBytes(Process.myUid());
+            long transmittedBytes = TrafficStats.getUidTxBytes(Process.myUid());
+            if (receivedBytes < 0L || transmittedBytes < 0L) {
+                log("uid traffic unavailable");
+                return;
+            }
+            log("uid traffic: rx=" + receivedBytes + " tx=" + transmittedBytes);
+        } catch (RuntimeException ignored) {
+            // Diagnostics must never disturb playback.
+        }
+    }
 
     /** Records a watch-time callback, logged at most 32 times per process. */
     public static void watchTimeCallback() {

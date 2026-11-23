@@ -2,6 +2,7 @@ package app.morphe.patches.music.layout.classicplayer
 
 import app.morphe.patcher.Fingerprint
 import app.morphe.patcher.extensions.InstructionExtensions.addInstruction
+import app.morphe.patcher.extensions.InstructionExtensions.addInstructions
 import app.morphe.patcher.extensions.InstructionExtensions.replaceInstruction
 import app.morphe.patcher.methodCall
 import app.morphe.patcher.string
@@ -106,7 +107,10 @@ internal fun installCacheRetentionDiagnosticHooks() {
     check(stats2Register == 3) { "Cache diagnostics: unsupported fresh stats2 register" }
     watch.addInstruction(0, "invoke-static {}, $DIAGNOSTICS->watchTimeCallback()V")
     progressing.addInstruction(0, "invoke-static {}, $DIAGNOSTICS->playerProgressing()V")
-    progress.addInstruction(dispatch + 1, "invoke-static {}, $DIAGNOSTICS->playerProgressSample()V")
+    progress.addInstructions(dispatch + 1, """
+        invoke-static {}, $DIAGNOSTICS->playerProgressSample()V
+        invoke-static {}, $DIAGNOSTICS->sampleUidTraffic()V
+    """)
     stats2Time.addInstruction(accumulated + 1,
         "invoke-static/range {p0 .. p0}, $DIAGNOSTICS->stats2Accumulated(Ljava/lang/Object;)V")
     stats2Creation.addInstruction(stats2Admission + 1,
@@ -116,8 +120,29 @@ internal fun installCacheRetentionDiagnosticHooks() {
     alternate.replaceInstruction(hit, "invoke-static {}, $DIAGNOSTICS->alternateCachedSpan()V")
     alternate.addInstruction(hit + 1, "return-object v4")
     // Inserted before the following goto so the original try/handler range keeps its shape.
+    val budget = capacityRemovalInstructions.indices.single { i ->
+        i + 3 < capacityRemovalInstructions.size && capacityRemovalInstructions[i].opcode == Opcode.INVOKE_INTERFACE &&
+            (capacityRemovalInstructions[i] as ReferenceInstruction).reference.toString() == "Laudz;->a(J)J" &&
+            capacityRemovalInstructions[i + 1].opcode == Opcode.MOVE_RESULT_WIDE &&
+            (capacityRemovalInstructions[i + 1] as OneRegisterInstruction).registerA == 27 &&
+            capacityRemovalInstructions[i + 2].opcode == Opcode.CMP_LONG &&
+            capacityRemovalInstructions[i + 3].opcode == Opcode.IF_GTZ
+    }
+    val reread = capacityRemovalInstructions.indices.first { i ->
+        i > capacityRemovalCall && capacityRemovalInstructions[i].opcode == Opcode.INVOKE_VIRTUAL_RANGE &&
+            (capacityRemovalInstructions[i] as ReferenceInstruction).reference.toString() == "Laued;->a()J"
+    }
+    check(capacityRemovalInstructions[reread + 1].opcode == Opcode.MOVE_RESULT_WIDE &&
+        (capacityRemovalInstructions[reread + 1] as OneRegisterInstruction).registerA == 27)
+    // v24/v25 is the required total; v26 is an unrelated live int, ignored by the probe.
+    capacityRemoval.addInstruction(reread + 2,
+        "invoke-static/range {v27 .. v28}, $DIAGNOSTICS->capacityAfter(J)V")
     capacityRemoval.addInstruction(capacityRemovalCall + 1,
         "invoke-static {}, $DIAGNOSTICS->capacityRemovalReturned()V")
+    capacityRemoval.addInstruction(capacityRemovalCall,
+        "invoke-static/range {v6 .. v7}, $DIAGNOSTICS->capacityBefore(J)V")
+    capacityRemoval.addInstruction(budget + 2,
+        "invoke-static/range {v24 .. v28}, $DIAGNOSTICS->capacityBudgetPacked(JIJ)V")
     for ((index, register) in returns.asReversed()) {
         // Replacing rather than inserting keeps existing branch targets on the probe.
         supplier.replaceInstruction(index,

@@ -26,6 +26,8 @@
 
 診断を更新した再生試験では、同一プロセスで `alternate` の供給と保存済み区間の返却29回を確認した。別プロセスでは `simple` の供給も観測した。視聴時間フックは引き続き0回だった一方、同じ試験で標準の `MedialibPlayerEvents` は `onProgressing`・`onPlaying`・`onPaused`・`onEnded` を出していた。追加の診断は `Lavdj;->q(J)V` と `Lbckg;->bD(Lbcre;JJJJZII)V` の本来の進捗通知を観測する。区間返却は音声データの実読込・通信量削減の証拠ではない。
 
+一時停止・再開・シークの追加試験で `local director progress dispatched` 32回（診断上限）、`media engine progressing` 3回、保存済み区間の返却31回を観測した。`Lbbwy;->n(Lazmp;)V` は条件が成立すると `Lbbxt;->t(Lazmp;)V` に渡し、`Lbbxt;->u:J` が進捗の前進分を累積する。`Lbbxt;->f` は曲ID、`h` は CPN として使われる。Stats2 がこの実機で実際に累積を更新するかは追加診断で確認する。アカウント候補の `Lagdw;->e()` と `Lagcy;->e()` は、再生セッションで選ばれたアカウントと同一か未確認。
+
 `Laugy;->x()V` はロック内で LRU 集合の先頭を選び、`E(String, true)` に渡す。通常音声とキャッシュキーの対応、アカウント切替時の掃除、期限・再生権限の失効経路との分離は追加で検証する。LRU だけに見えることを根拠に保持を有効化しない。
 
 ## 本体接続の受入条件

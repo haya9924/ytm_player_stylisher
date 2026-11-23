@@ -2,6 +2,7 @@ package app.morphe.extension.ym;
 
 import android.util.Log;
 
+import java.lang.ref.WeakReference;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -32,7 +33,16 @@ public final class CacheRetentionDiagnostics {
     private static final AtomicInteger progressingLogs = new AtomicInteger();
     private static final AtomicInteger progressSampleLogs = new AtomicInteger();
     private static final AtomicInteger stats2AccumulatedLogs = new AtomicInteger();
+    private static final AtomicInteger freshStats2CreatedLogs = new AtomicInteger();
+    private static final AtomicInteger freshStats2AccumulatedLogs = new AtomicInteger();
     private static final AtomicInteger stats2DispatchedLogs = new AtomicInteger();
+    private static final AtomicInteger capacityRemovalLogs = new AtomicInteger();
+
+    private static final int STATS2_ACCUMULATED_LIMIT = 32;
+
+    /** Diagnostic candidate only: the latest locally created stats2 object, weakly held. */
+    private static volatile WeakReference<Object> freshStats2Candidate =
+            new WeakReference<>(null);
 
     private CacheRetentionDiagnostics() {}
 
@@ -55,14 +65,53 @@ public final class CacheRetentionDiagnostics {
         logBounded(progressSampleLogs, "local director progress dispatched");
     }
 
-    /** Observes the native stats2 watch time total being advanced, not track identity. */
-    public static void stats2Accumulated() {
-        logBounded(stats2AccumulatedLogs, "native stats2 watch time advanced");
+    /**
+     * Observes the native stats2 watch time total being advanced, not track identity.
+     * Logs a second line only when this session still holds the same locally created
+     * diagnostic candidate, so the two lines cannot be attributed to different objects.
+     */
+    public static void stats2Accumulated(Object stats2) {
+        try {
+            if (stats2AccumulatedLogs.getAndIncrement() < STATS2_ACCUMULATED_LIMIT) {
+                log("native stats2 watch time advanced");
+                WeakReference<Object> candidate = freshStats2Candidate;
+                if (candidate.get() == stats2 &&
+                        freshStats2AccumulatedLogs.getAndIncrement() < STATS2_ACCUMULATED_LIMIT) {
+                    log("fresh local stats2 watch time advanced");
+                }
+            }
+        } catch (RuntimeException ignored) {
+            // Diagnostics must never disturb playback.
+        }
+    }
+
+    /**
+     * Records the latest locally created stats2 object as a diagnostic candidate.
+     * Identity is only compared with the accumulating object; nothing is inspected.
+     */
+    public static void primaryStats2Created(Object stats2) {
+        try {
+            freshStats2Candidate = new WeakReference<>(stats2);
+            if (freshStats2CreatedLogs.getAndUpdate(value -> Math.min(value + 1, 32)) < 32) {
+                log("fresh local stats2 created");
+            }
+        } catch (RuntimeException ignored) {
+            // Diagnostics must never disturb playback.
+        }
     }
 
     /** Observes an already dispatched native stats2 progress event. */
     public static void stats2Dispatched() {
         logBounded(stats2DispatchedLogs, "native stats2 progress dispatched");
+    }
+
+    /** Observes the native capacity removal callback returning, not the removed bytes. */
+    public static void capacityRemovalReturned() {
+        try {
+            logBounded(capacityRemovalLogs, "native capacity removal returned");
+        } catch (RuntimeException ignored) {
+            // Diagnostics must never disturb playback.
+        }
     }
 
     private static void logBounded(AtomicInteger count, String message) {

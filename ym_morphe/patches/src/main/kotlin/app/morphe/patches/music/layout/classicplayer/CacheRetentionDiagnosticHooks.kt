@@ -7,6 +7,7 @@ import app.morphe.patcher.methodCall
 import app.morphe.patcher.string
 import com.android.tools.smali.dexlib2.Opcode
 import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
+import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction
 
 private const val DIAGNOSTICS = "Lapp/morphe/extension/ym/CacheRetentionDiagnostics;"
 
@@ -39,6 +40,17 @@ internal fun installCacheRetentionDiagnosticHooks() {
             (instructions[index] as OneRegisterInstruction).registerA == 4 &&
             instructions[index - 1].opcode == Opcode.GOTO
     } ?: error("Cache diagnostics: unsupported alternate cached-span return")
+
+    val capacityRemoval = Fingerprint(
+        definingClass = "Laugy;", name = "f", returnType = "Ljava/io/File;",
+        parameters = listOf("Ljava/lang/String;", "J", "J", "Laust;"),
+    ).method
+    val capacityRemovalInstructions = capacityRemoval.implementation!!.instructions
+    val capacityRemovalCall = capacityRemovalInstructions.indices.singleOrNull { index ->
+        capacityRemovalInstructions[index].opcode == Opcode.INVOKE_INTERFACE &&
+            (capacityRemovalInstructions[index] as ReferenceInstruction)
+                .reference.toString() == "Lauge;->x()V"
+    } ?: error("Cache diagnostics: unsupported native capacity removal call")
 
     val progressing = Fingerprint(
         definingClass = "Lavdj;", name = "q", returnType = "V", parameters = listOf("J"),
@@ -75,15 +87,37 @@ internal fun installCacheRetentionDiagnosticHooks() {
     check(stats2DispatchInstructions[stats2Call + 1].opcode != Opcode.MOVE_RESULT) {
         "Cache diagnostics: unsupported stats2 progress consume"
     }
+    val stats2Creation = Fingerprint(
+        definingClass = "Lbbwy;", name = "i", returnType = "V",
+        parameters = listOf("Ljava/lang/String;", "Laqdn;", "I"),
+    ).method
+    val stats2CreationInstructions = stats2Creation.implementation!!.instructions
+    val stats2Admission = stats2CreationInstructions.indices.singleOrNull { index ->
+        // Only the branch guarded by the existing null check reaches this assignment.
+        index > 1 && stats2CreationInstructions[index].opcode == Opcode.IPUT_OBJECT &&
+            (stats2CreationInstructions[index] as ReferenceInstruction)
+                .reference.toString() == "Lbbwy;->b:Lbbxt;" &&
+            stats2CreationInstructions[index - 1].opcode == Opcode.MOVE_RESULT_OBJECT &&
+            (stats2CreationInstructions[index - 2] as? ReferenceInstruction)
+                ?.reference?.toString() == "Lbbxu;->a(Ljava/lang/String;Laqdn;Ljava/lang/String;I)Lbbxt;"
+    } ?: error("Cache diagnostics: unsupported fresh stats2 admission")
+    val stats2Register =
+        (stats2CreationInstructions[stats2Admission - 1] as OneRegisterInstruction).registerA
+    check(stats2Register == 3) { "Cache diagnostics: unsupported fresh stats2 register" }
     watch.addInstruction(0, "invoke-static {}, $DIAGNOSTICS->watchTimeCallback()V")
     progressing.addInstruction(0, "invoke-static {}, $DIAGNOSTICS->playerProgressing()V")
     progress.addInstruction(dispatch + 1, "invoke-static {}, $DIAGNOSTICS->playerProgressSample()V")
     stats2Time.addInstruction(accumulated + 1,
-        "invoke-static {}, $DIAGNOSTICS->stats2Accumulated()V")
+        "invoke-static/range {p0 .. p0}, $DIAGNOSTICS->stats2Accumulated(Ljava/lang/Object;)V")
+    stats2Creation.addInstruction(stats2Admission + 1,
+        "invoke-static/range {v3 .. v3}, $DIAGNOSTICS->primaryStats2Created(Ljava/lang/Object;)V")
     stats2Dispatch.addInstruction(stats2Call + 1,
         "invoke-static {}, $DIAGNOSTICS->stats2Dispatched()V")
     alternate.replaceInstruction(hit, "invoke-static {}, $DIAGNOSTICS->alternateCachedSpan()V")
     alternate.addInstruction(hit + 1, "return-object v4")
+    // Inserted before the following goto so the original try/handler range keeps its shape.
+    capacityRemoval.addInstruction(capacityRemovalCall + 1,
+        "invoke-static {}, $DIAGNOSTICS->capacityRemovalReturned()V")
     for ((index, register) in returns.asReversed()) {
         // Replacing rather than inserting keeps existing branch targets on the probe.
         supplier.replaceInstruction(index,

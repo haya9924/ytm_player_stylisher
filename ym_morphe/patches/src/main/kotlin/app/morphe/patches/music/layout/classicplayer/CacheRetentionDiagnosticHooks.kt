@@ -40,7 +40,22 @@ internal fun installCacheRetentionDiagnosticHooks() {
             instructions[index - 1].opcode == Opcode.GOTO
     } ?: error("Cache diagnostics: unsupported alternate cached-span return")
 
+    val progressing = Fingerprint(
+        definingClass = "Lavdj;", name = "q", returnType = "V", parameters = listOf("J"),
+        filters = listOf(string("onProgressing(playbackStartSystemTimeMs=%d)")),
+    ).method
+    val progress = Fingerprint(
+        definingClass = "Lbckg;", name = "bD", returnType = "V",
+        parameters = listOf("Lbcre;", "J", "J", "J", "J", "Z", "I", "I"),
+        filters = listOf(string("Media progress reported outside media playback: %s")),
+    ).method
+    val dispatch = progress.implementation!!.instructions.withIndex().single { (_, instruction) ->
+        (instruction as? com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction)
+            ?.reference?.toString() == "Lbbwy;->n(Lazmp;)V"
+    }.index
     watch.addInstruction(0, "invoke-static {}, $DIAGNOSTICS->watchTimeCallback()V")
+    progressing.addInstruction(0, "invoke-static {}, $DIAGNOSTICS->playerProgressing()V")
+    progress.addInstruction(dispatch + 1, "invoke-static {}, $DIAGNOSTICS->playerProgressSample()V")
     alternate.replaceInstruction(hit, "invoke-static {}, $DIAGNOSTICS->alternateCachedSpan()V")
     alternate.addInstruction(hit + 1, "return-object v4")
     for ((index, register) in returns.asReversed()) {

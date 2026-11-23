@@ -22,6 +22,10 @@
 
 改造版 9.30.53（versionCode 93053240）の arm64 実機で `YmCacheDiag: cache supplier returned: unknown` を確認した。初回診断が比較した `Lauge;` はインターフェースで、`Laued;->c(Ljava/io/File;Ljava/io/File;)Lauge;` は実装クラス `Laugy;` のインスタンスを返す。このため `unknown` は `Laugy;` と矛盾しないが、実機がその実装で音声を読んだ証拠ではない。
 
+同じ実機で通常再生が進み、位置 158693 ms で一時停止したことを Android のメディアセッションで確認した。インストール済み APK には視聴時間・キャッシュ両方の診断呼び出しが存在するが、この試行では `watch-time callback` が出ていない。`Lbbyh` への到達を前提に再生回数を記録しない。
+
+診断を更新した再生試験では、同一プロセスで `alternate` の供給と保存済み区間の返却29回を確認した。別プロセスでは `simple` の供給も観測した。視聴時間フックは引き続き0回だった一方、同じ試験で標準の `MedialibPlayerEvents` は `onProgressing`・`onPlaying`・`onPaused`・`onEnded` を出していた。追加の診断は `Lavdj;->q(J)V` と `Lbckg;->bD(Lbcre;JJJJZII)V` の本来の進捗通知を観測する。区間返却は音声データの実読込・通信量削減の証拠ではない。
+
 `Laugy;->x()V` はロック内で LRU 集合の先頭を選び、`E(String, true)` に渡す。通常音声とキャッシュキーの対応、アカウント切替時の掃除、期限・再生権限の失効経路との分離は追加で検証する。LRU だけに見えることを根拠に保持を有効化しない。
 
 ## 本体接続の受入条件

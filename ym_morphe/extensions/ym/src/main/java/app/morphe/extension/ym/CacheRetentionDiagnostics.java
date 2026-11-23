@@ -29,6 +29,8 @@ public final class CacheRetentionDiagnostics {
     private static final AtomicInteger watchTimeLogs = new AtomicInteger();
     private static final AtomicInteger cacheCategoriesLogged = new AtomicInteger();
     private static final AtomicInteger cachedSpanLogs = new AtomicInteger();
+    private static final AtomicInteger progressingLogs = new AtomicInteger();
+    private static final AtomicInteger progressSampleLogs = new AtomicInteger();
 
     private CacheRetentionDiagnostics() {}
 
@@ -41,6 +43,18 @@ public final class CacheRetentionDiagnostics {
         } catch (RuntimeException ignored) {
             // Diagnostics must never disturb playback.
         }
+    }
+
+    public static void playerProgressing() {
+        logBounded(progressingLogs, "media engine progressing");
+    }
+
+    public static void playerProgressSample() {
+        logBounded(progressSampleLogs, "local director progress dispatched");
+    }
+
+    private static void logBounded(AtomicInteger count, String message) {
+        if (count.getAndUpdate(value -> Math.min(value + 1, 32)) < 32) log(message);
     }
 
     /** Observes an existing lookup returning a cached span, not bytes consumed by playback. */

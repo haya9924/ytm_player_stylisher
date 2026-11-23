@@ -78,6 +78,10 @@ jobs:
             java -cp "$classes" "app.morphe.extension.ym.${test}Test"
           done
 
+      - name: Test native cache selection
+        shell: bash
+        run: bash tests/native_cache_retention/run.sh
+
       - name: Install Android SDK packages
         shell: bash
         run: |

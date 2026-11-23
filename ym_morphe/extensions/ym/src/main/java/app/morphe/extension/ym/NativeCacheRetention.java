@@ -40,7 +40,10 @@ public final class NativeCacheRetention {
     public static synchronized void scopedBackend(Object identity, Object backend) {
         Long began = scopeRead.get();
         scopeRead.remove();
-        if (began == null || began != scopeGeneration) return;
+        if (began == null || began != scopeGeneration) {
+            if (began == null && identity == null) unscopedSupplier();
+            return;
+        }
         observedBinding = true;
         try {
             String account = ScopedPlayHost.accountKey(identity);
@@ -63,6 +66,11 @@ public final class NativeCacheRetention {
             invalidate();
             report(scopeReports, "capacity scope unavailable");
         }
+    }
+
+    public static void unscopedSupplier() {
+        scopeRead.remove();
+        report(scopeReports, "native unscoped cache supplied");
     }
 
     /** Account transitions are observed in the native providers, not guessed from cache use. */

@@ -28,6 +28,25 @@ internal fun installNativeCacheRetentionHooks(apply: Boolean) {
         body[i].opcode == Opcode.INVOKE_INTERFACE && (body[i] as ReferenceInstruction)
             .reference.toString() == "Lawye;->e()Lawyd;"
     }
+    val provider2 = Fingerprint(definingClass = "Laubi;", name = "b", returnType = "Lsfx;",
+        parameters = emptyList()).method
+    val alternateSupplier = provider2.implementation!!.instructions
+    val scopedCall = alternateSupplier.indices.single { i ->
+        i >= 2 && i + 1 < alternateSupplier.size && alternateSupplier[i].opcode == Opcode.INVOKE_VIRTUAL &&
+            (alternateSupplier[i] as ReferenceInstruction).reference.toString() == "Laued;->b(Lawyd;)Lsfx;" &&
+            (alternateSupplier[i] as FiveRegisterInstruction).registerD == 1 &&
+            alternateSupplier[i - 1].opcode == Opcode.MOVE_RESULT_OBJECT &&
+            (alternateSupplier[i - 2] as? ReferenceInstruction)?.reference?.toString() == "Lawye;->e()Lawyd;" &&
+            alternateSupplier[i + 1].opcode == Opcode.MOVE_RESULT_OBJECT &&
+            (alternateSupplier[i + 1] as OneRegisterInstruction).registerA == 0
+    }
+    val unscopedCall = alternateSupplier.indices.single { i ->
+        alternateSupplier[i].opcode == Opcode.INVOKE_VIRTUAL &&
+            (alternateSupplier[i] as ReferenceInstruction).reference.toString() == "Laueo;->b()Lsfx;" &&
+            alternateSupplier[i + 1].opcode == Opcode.MOVE_RESULT_OBJECT &&
+            (alternateSupplier[i + 1] as OneRegisterInstruction).registerA == 0
+    }
+    check(unscopedCall > scopedCall)
     val eviction = Fingerprint(definingClass = "Laugy;", name = "x", returnType = "V",
         parameters = emptyList(), filters = listOf(string("m.noopEvict"))).method
     val implementation = eviction.implementation!!
@@ -83,6 +102,10 @@ internal fun installNativeCacheRetentionHooks(apply: Boolean) {
     provider.addInstruction(returned + 1,
         "invoke-static {v2, v0}, $POLICY->scopedBackend(Ljava/lang/Object;Ljava/lang/Object;)V")
     provider.addInstruction(accountRead, "invoke-static {}, $POLICY->beginScopeRead()V")
+    provider2.addInstruction(unscopedCall + 2, "invoke-static {}, $POLICY->unscopedSupplier()V")
+    provider2.addInstruction(scopedCall + 2,
+        "invoke-static {v1, v0}, $POLICY->scopedBackend(Ljava/lang/Object;Ljava/lang/Object;)V")
+    provider2.addInstruction(scopedCall - 2, "invoke-static {}, $POLICY->beginScopeRead()V")
     val selector = if (apply) "selectCapacityVictim" else "observeCapacityVictim"
     eviction.addInstructions(capacity - 1, """
         invoke-static {p0, v2, v0}, $POLICY->$selector(Ljava/lang/Object;Ljava/util/LinkedHashSet;Ljava/lang/String;)Ljava/lang/String;

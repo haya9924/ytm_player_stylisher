@@ -26,14 +26,14 @@ internal fun installScopedPlayRecordingHooks() {
     }
     val slot = createBody.instructions[created] as TwoRegisterInstruction
     check(slot.registerA == 3 && slot.registerB == createBody.registerCount - 4)
-    val local = Fingerprint(definingClass = "Lbckg;", name = "bp", returnType = "V",
-        parameters = listOf("Lbcsc;")).method
+    val local = Fingerprint(definingClass = "Lbckg;", name = "bD", returnType = "V",
+        parameters = listOf("Lbcre;", "J", "J", "J", "J", "Z", "I", "I"),
+        filters = listOf(string("Media progress reported outside media playback: %s"))).method
     val dispatch = local.implementation!!.instructions.withIndex().single { (_, insn) ->
         insn.opcode == Opcode.INVOKE_VIRTUAL && (insn as ReferenceInstruction).reference.toString() ==
-            "Lbbwy;->i(Ljava/lang/String;Laqdn;I)V"
+            "Lbbwy;->n(Lazmp;)V"
     }
-    val manager = (dispatch.value as FiveRegisterInstruction).registerC
-    check(manager == 1)
+    check((dispatch.value as FiveRegisterInstruction).registerC == 1)
     val time = Fingerprint(definingClass = "Lbbxt;", name = "t", returnType = "V",
         parameters = listOf("Lazmp;")).method
     val timeBody = time.implementation!!
@@ -53,8 +53,9 @@ internal fun installScopedPlayRecordingHooks() {
 
     creation.addInstruction(created + 1,
         "invoke-static/range {v3 .. v3}, $HOST->fresh(Ljava/lang/Object;)V")
-    local.addInstruction(dispatch.index + 1,
-        "invoke-static/range {v$manager .. v$manager}, $HOST->local(Ljava/lang/Object;)V")
+    local.addInstruction(dispatch.index + 1, "invoke-static {}, $HOST->endLocal()V")
+    local.addInstruction(dispatch.index,
+        "invoke-static/range {p0 .. p1}, $HOST->local(Ljava/lang/Object;Ljava/lang/Object;)V")
     time.addInstruction(updated + 1,
         "invoke-static/range {p0 .. p0}, $HOST->sample(Ljava/lang/Object;)V")
     release.addInstruction(0, "invoke-static/range {p0 .. p0}, $HOST->release(Ljava/lang/Object;)V")

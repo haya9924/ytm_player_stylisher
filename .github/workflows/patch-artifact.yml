@@ -68,7 +68,7 @@ jobs:
           tests=tests/java/app/morphe/extension/ym
           classes="$(mktemp -d)"
           trap 'rm -rf "$classes"' EXIT
-          suites=(ArtworkBlur ArtworkCrop CacheRetentionCriteria PlaybackPriorityState QualifiedPlayCounter PlaybackSessionTracker CacheEvictionPreference)
+          suites=(ArtworkBlur ArtworkCrop CacheRetentionCriteria PlaybackPriorityState QualifiedPlayCounter PlaybackSessionTracker CacheEvictionPreference ScopedPlaybackKeys)
           sources=()
           for test in "${suites[@]}"; do
             sources+=("$src/$test.java" "$tests/${test}Test.java")

@@ -34,8 +34,16 @@ val classicPlayerPatch = patch(
         description = "観測用ログだけを追加します。再生回数の記録やキャッシュ設定は変更しません。",
     )
 
+    val experimentalRecording by booleanOption(
+        key = "experimentalScopedPlayRecording",
+        default = false,
+        title = "曲別の再生回数を端末内に記録（実験的）",
+        description = "対応する通常再生だけを記録します。音声の保持や通信設定は変更しません。",
+    )
+
     execute {
         if (cacheDiagnostics == true) installCacheRetentionDiagnosticHooks()
+        if (experimentalRecording == true) installScopedPlayRecordingHooks()
         installPlaybackPriorityHooks()
         installAudioVideoPillHooks()
         installPlayerActionMenuHook()

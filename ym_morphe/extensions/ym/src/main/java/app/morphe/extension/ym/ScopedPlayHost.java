@@ -53,13 +53,8 @@ public final class ScopedPlayHost {
                 pending.clear();
                 if (fields == null) fields = new Fields(fresh.getClass());
                 Object identity = fields.account.get(fresh);
-                if (identity == null || !"agbn".equals(identity.getClass().getName())) return;
-                // agbn is package-private; use the public contract for reflective invocation.
-                Class<?> identityContract = identity.getClass().getSuperclass();
-                if (identityContract == null || !"agan".equals(identityContract.getName())) return;
-                if (!Boolean.FALSE.equals(identityContract.getMethod("g").invoke(identity))) return;
-                String account = (String) identityContract.getMethod("d").invoke(identity);
-                if (!QualifiedPlayCounter.isValidId(account) || account.startsWith("PRIMORDIAL-")) return;
+                String account = accountKey(identity);
+                if (account == null) return;
                 ScopedPlaybackRecordingBridge.admit(fresh, account,
                         (String) fields.track.get(fresh), (String) fields.cpn.get(fresh));
                 admitted = new WeakReference<>(fresh);
@@ -67,6 +62,39 @@ public final class ScopedPlayHost {
             } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
                 // Unsupported layouts or inaccessible fields never select an account.
             }
+        }
+    }
+
+    static String accountKey(Object identity) throws ReflectiveOperationException {
+        if (identity == null || !"agbn".equals(identity.getClass().getName())) return null;
+        // agbn is package-private; invoke the public contract.
+        Class<?> contract = identity.getClass().getSuperclass();
+        if (contract == null || !"agan".equals(contract.getName()) ||
+                !Boolean.FALSE.equals(contract.getMethod("g").invoke(identity))) return null;
+        String key = (String) contract.getMethod("d").invoke(identity);
+        return QualifiedPlayCounter.isValidId(key) && !key.startsWith("PRIMORDIAL-") ? key : null;
+    }
+
+    public static void accountStateCommitted(Object previous, Object next) {
+        try {
+            if (previous != null && next != null) {
+                Class<?> type = Class.forName("agcx", false, previous.getClass().getClassLoader());
+                Method identity = type.getMethod("f");
+                Object before = identity.invoke(previous);
+                if (before != null && before == identity.invoke(next)) return;
+            }
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
+            // If comparison fails, discard the previous recording/cache scope.
+        }
+        accountChanged();
+    }
+
+    public static void accountChanged() {
+        synchronized (LOCK) {
+            pending.clear();
+            admitted.clear();
+            ScopedPlaybackRecordingBridge.release(null);
+            NativeCacheRetention.invalidate();
         }
     }
 

@@ -191,7 +191,7 @@ public final class ScopedPlaybackRecordingBridge {
     }
 
     private static QualifiedPlayCounter.RecordResult record(
-            String account, String track, String session) {
+            String account, String track, String session, int threshold, long scopeGeneration) {
         Context context = appContext;
         if (context == null) return QualifiedPlayCounter.RecordResult.UNAVAILABLE;
         File directory;
@@ -212,8 +212,13 @@ public final class ScopedPlaybackRecordingBridge {
         ScopedPlaybackKeys.Keys keys =
                 ScopedPlaybackKeys.derive(token, account, track, session);
         if (keys == null) return QualifiedPlayCounter.RecordResult.UNAVAILABLE;
-        return new QualifiedPlayCounter(store.toPath())
-                .recordOnce(keys.account, keys.track, keys.session);
+        QualifiedPlayCounter counter = new QualifiedPlayCounter(store.toPath());
+        QualifiedPlayCounter.RecordResult result = counter.recordOnce(keys.account, keys.track, keys.session);
+        if (result != QualifiedPlayCounter.RecordResult.UNAVAILABLE) {
+            NativeCacheRetention.qualified(account, track, counter.count(keys.account, keys.track),
+                    threshold, scopeGeneration);
+        }
+        return result;
     }
 
     private static byte[] token(File directory, File store) {
@@ -279,6 +284,7 @@ public final class ScopedPlaybackRecordingBridge {
         final String track;
         final String session;
         final CacheRetentionCriteria criteria;
+        final long scopeGeneration = NativeCacheRetention.generation();
         long requiredMillis = -1L;
         long watchedMillis = -1L;
         boolean claimed;
@@ -325,7 +331,8 @@ public final class ScopedPlaybackRecordingBridge {
             // In-flight work retains the account captured at admission.
             QualifiedPlayCounter.RecordResult result;
             try {
-                result = record(account, track, session);
+                result = record(account, track, session, generation.criteria.playCount,
+                        generation.scopeGeneration);
             } catch (RuntimeException unavailable) {
                 result = QualifiedPlayCounter.RecordResult.UNAVAILABLE;
             }

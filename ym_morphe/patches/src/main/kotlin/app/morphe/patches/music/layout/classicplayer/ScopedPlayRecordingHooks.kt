@@ -50,6 +50,33 @@ internal fun installScopedPlayRecordingHooks() {
     val startReturn = startup.implementation!!.instructions.withIndex()
         .filter { it.value.opcode == Opcode.RETURN_VOID }.map { it.index }
     check(startReturn.isNotEmpty())
+    val atomicAccount = Fingerprint(definingClass = "Lagcy;", name = "t", returnType = "Z",
+        parameters = listOf("Lagcx;", "Lagcw;")).method
+    val accountCode = atomicAccount.implementation!!.instructions
+    val accountSuccess = accountCode.indices.single { index ->
+        index > 0 && accountCode[index].opcode == Opcode.RETURN &&
+            accountCode[index - 1].opcode == Opcode.CONST_4 &&
+            (accountCode[index - 1] as com.android.tools.smali.dexlib2.iface.instruction.NarrowLiteralInstruction)
+                .narrowLiteral == 1
+    }
+    val legacy = Fingerprint(definingClass = "Lagdw;", name = "e", returnType = "Lawyd;",
+        parameters = emptyList()).matchOrNull() ?: error("Native recording: missing legacy account provider")
+    val accountWrites = legacy.originalClassDef.methods.mapNotNull { original ->
+        val writes = original.implementation?.instructions?.withIndex()?.filter { (_, instruction) ->
+            instruction.opcode == Opcode.IPUT_OBJECT && (instruction as ReferenceInstruction)
+                .reference.toString() == "Lagdw;->j:Lagat;"
+        }?.map { it.index }.orEmpty()
+        if (writes.isEmpty()) null else original to writes
+    }
+    check(accountWrites.sumOf { it.second.size } == 4)
+    atomicAccount.addInstruction(accountSuccess - 1,
+        "invoke-static/range {p1 .. p2}, $HOST->accountStateCommitted(Ljava/lang/Object;Ljava/lang/Object;)V")
+    accountWrites.forEach { (original, writes) ->
+        val changed = Fingerprint(definingClass = "Lagdw;", name = original.name,
+            returnType = original.returnType, parameters = original.parameterTypes.map { it.toString() }).method
+        writes.asReversed().forEach { index -> changed.addInstruction(index + 1,
+            "invoke-static {}, $HOST->accountChanged()V") }
+    }
 
     creation.addInstruction(created + 1,
         "invoke-static/range {v3 .. v3}, $HOST->fresh(Ljava/lang/Object;)V")

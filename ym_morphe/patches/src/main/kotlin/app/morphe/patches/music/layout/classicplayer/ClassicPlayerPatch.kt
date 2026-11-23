@@ -41,9 +41,22 @@ val classicPlayerPatch = patch(
         description = "対応する通常再生だけを記録します。音声の保持や通信設定は変更しません。",
     )
 
+    val capacityRetention by booleanOption(
+        key = "experimentalNativeCacheRetention",
+        default = false,
+        title = "よく聴く曲の標準キャッシュを優先保持（実験的）",
+        description = "曲別の再生記録が必要です。標準キャッシュの容量不足時だけ削除候補を調整します。",
+    )
+
     execute {
+        check(capacityRetention != true || experimentalRecording == true) {
+            "Native cache retention requires scoped playback recording"
+        }
         if (cacheDiagnostics == true) installCacheRetentionDiagnosticHooks()
         if (experimentalRecording == true) installScopedPlayRecordingHooks()
+        if (experimentalRecording == true && (capacityRetention == true || cacheDiagnostics == true)) {
+            installNativeCacheRetentionHooks(apply = capacityRetention == true)
+        }
         installPlaybackPriorityHooks()
         installAudioVideoPillHooks()
         installPlayerActionMenuHook()

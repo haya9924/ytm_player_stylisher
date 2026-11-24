@@ -5,6 +5,7 @@ import app.morphe.patcher.extensions.InstructionExtensions.addInstruction
 import app.morphe.patcher.patch.ApkFileType
 import app.morphe.patcher.patch.AppTarget
 import app.morphe.patcher.patch.Compatibility
+import app.morphe.patcher.patch.booleanOption
 import app.morphe.patcher.patch.patch
 import app.morphe.patcher.patch.resourceXml
 

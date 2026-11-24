@@ -98,6 +98,10 @@ jobs:
               repositories.maven {
                   name = 'MavenCentralMirror'
                   url = uri('https://maven-central.storage-download.googleapis.com/maven2')
+                  content {
+                      excludeGroupByRegex('com\\.android(\\..*)?')
+                      excludeGroupByRegex('androidx(\\..*)?')
+                  }
               }
           }
           gradle.beforeSettings { settings ->
@@ -110,6 +114,18 @@ jobs:
               if (project.rootProject.name == 'morphe-patches-gradle-plugin' ||
                       project.rootProject.name == 'morphe-patcher') {
                   addCentralMirror(project.repositories)
+                  project.afterEvaluate {
+                      // An HTTP 429 from Maven Central is fatal in Gradle rather than a
+                      // miss. Resolve these Google-only dependencies exclusively in Google Maven.
+                      def googleMaven = project.repositories.findByName('Google') ?: project.repositories.google()
+                      project.repositories.exclusiveContent {
+                          forRepositories(googleMaven)
+                          filter {
+                              includeGroupByRegex('com\\.android(\\..*)?')
+                              includeGroupByRegex('androidx(\\..*)?')
+                          }
+                      }
+                  }
               }
           }
           GRADLE

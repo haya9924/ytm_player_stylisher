@@ -61,10 +61,22 @@ val classicPlayerPatch = patch(
         description = "曲別の再生記録が必要です。標準キャッシュの容量不足時だけ削除候補を調整します。",
     )
 
+    val sharedCacheSupplierProbe by booleanOption(
+        key = "sharedCacheSupplierProbe",
+        default = false,
+        title = "共有キャッシュ供給元を観測する（開発用）",
+        description = "観測用の記録だけを追加します。キャッシュの内容・容量・選択結果は変更しません。",
+    )
+
     execute {
+        check(sharedCacheSupplierProbe != true ||
+            (cacheDiagnostics != true && experimentalRecording != true && capacityRetention != true)) {
+            "sharedCacheSupplierProbe cannot be combined with cacheRetentionDiagnostics, experimentalScopedPlayRecording, or experimentalNativeCacheRetention"
+        }
         check(capacityRetention != true || experimentalRecording == true) {
             "Native cache retention requires scoped playback recording"
         }
+        if (sharedCacheSupplierProbe == true) installSharedCacheSupplierProbe()
         if (dataSavingDiagnostics == true) enableDataSavingDiagnostics()
         if (lowDataResume == true || dataSavingDiagnostics == true) {
             installLowDataPlaybackResumeHook(save = lowDataResume == true, diagnostics = dataSavingDiagnostics == true)

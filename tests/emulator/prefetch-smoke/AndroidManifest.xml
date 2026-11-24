@@ -1,0 +1,5 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="app.morphe.test.prefetch">
+    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="28" />
+    <application android:label="Prefetch smoke test" />
+    <instrumentation android:name=".SmokeInstrumentation" android:targetPackage="app.morphe.android.apps.youtube.music.ymverify" />
+</manifest>

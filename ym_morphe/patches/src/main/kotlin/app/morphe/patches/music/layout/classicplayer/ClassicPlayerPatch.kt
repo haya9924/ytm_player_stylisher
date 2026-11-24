@@ -40,10 +40,42 @@ val classicPlayerPatch = patch(
         description = "通信を変更せず、先読みの制限と復元後のキュー取得について固定メッセージを記録します。",
     )
 
+    val cacheDiagnostics by booleanOption(
+        key = "cacheRetentionDiagnostics",
+        default = false,
+        title = "再生・キャッシュ診断（開発用）",
+        description = "観測用ログだけを追加します。再生回数の記録やキャッシュ設定は変更しません。",
+    )
+
+    val experimentalRecording by booleanOption(
+        key = "experimentalScopedPlayRecording",
+        default = false,
+        title = "曲別の再生回数を端末内に記録（実験的）",
+        description = "対応する通常再生だけを記録します。音声の保持や通信設定は変更しません。",
+    )
+
+    val capacityRetention by booleanOption(
+        key = "experimentalNativeCacheRetention",
+        default = false,
+        title = "よく聴く曲の標準キャッシュを優先保持（実験的）",
+        description = "曲別の再生記録が必要です。標準キャッシュの容量不足時だけ削除候補を調整します。",
+    )
+
     execute {
+        check(capacityRetention != true || experimentalRecording == true) {
+            "Native cache retention requires scoped playback recording"
+        }
         if (dataSavingDiagnostics == true) enableDataSavingDiagnostics()
         if (lowDataResume == true || dataSavingDiagnostics == true) {
             installLowDataPlaybackResumeHook(save = lowDataResume == true, diagnostics = dataSavingDiagnostics == true)
+        }
+        if (cacheDiagnostics == true) {
+            installCacheRetentionDiagnosticHooks()
+            installPlaybackRestoreDiagnosticHooks()
+        }
+        if (experimentalRecording == true) installScopedPlayRecordingHooks()
+        if (experimentalRecording == true && (capacityRetention == true || cacheDiagnostics == true)) {
+            installNativeCacheRetentionHooks(apply = capacityRetention == true)
         }
         installPlaybackPriorityHooks()
         installAudioVideoPillHooks()
@@ -51,6 +83,7 @@ val classicPlayerPatch = patch(
         installArtworkBitmapHooks()
         installArtworkLithoHooks()
         installArtworkSurfaceResources()
+        installPlayerActionMenuHook()
         // The Settings activity starts preference intents. Make our intent explicit at runtime
         // so it works with Android 14+ and with arbitrary cloned package names.
         Fingerprint(

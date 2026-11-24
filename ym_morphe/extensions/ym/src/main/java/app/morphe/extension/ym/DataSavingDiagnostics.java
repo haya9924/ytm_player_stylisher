@@ -17,11 +17,13 @@ public final class DataSavingDiagnostics {
 
     private static final int LOG_LIMIT = 8;
 
+    private static final String PREFETCH_ENTRY_MESSAGE = "prefetch entry";
     private static final String PREFETCH_ADMITTED_MESSAGE = "eligible prefetch: admitted";
     private static final String PREFETCH_BLOCKED_MESSAGE = "eligible prefetch: blocked";
     private static final String RESTORE_SUBMITTED_MESSAGE = "restore follow-up: submitted";
     private static final String RESTORE_SKIPPED_MESSAGE = "restore follow-up: skipped";
 
+    private static final AtomicInteger prefetchEntryLogs = new AtomicInteger();
     private static final AtomicInteger prefetchAdmittedLogs = new AtomicInteger();
     private static final AtomicInteger prefetchBlockedLogs = new AtomicInteger();
     private static final AtomicInteger restoreSubmittedLogs = new AtomicInteger();
@@ -32,8 +34,27 @@ public final class DataSavingDiagnostics {
     private static volatile boolean enabled;
 
     /** Application startup hook in diagnostics builds only. */
-    public static void enable() {
+    public static synchronized void enable() {
+        if (enabled) return;
         enabled = true;
+        try {
+            Log.i(TAG, "diagnostics enabled");
+        } catch (RuntimeException ignored) {
+            // Diagnostics must never disturb playback.
+        }
+    }
+
+    /** Records admission entry before any eligibility check, logged at most 8 times. */
+    public static void onPrefetchEntry() {
+        if (!enabled) return;
+        try {
+            if (prefetchEntryLogs.getAndUpdate(value -> Math.min(value + 1, LOG_LIMIT))
+                    < LOG_LIMIT) {
+                Log.d(TAG, PREFETCH_ENTRY_MESSAGE);
+            }
+        } catch (RuntimeException ignored) {
+            // Diagnostics must never disturb playback.
+        }
     }
 
     /**

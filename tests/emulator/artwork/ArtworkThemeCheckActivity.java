@@ -27,6 +27,9 @@ public final class ArtworkThemeCheckActivity extends Activity {
     private View canvas, chrome, raised;
     private int stock, warm;
     private final Object metadataLoader = new Object();
+    private final Object alternateLoader = new Object();
+    private Bitmap lifecycleTile;
+    private int lifecycleSurface;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
@@ -110,9 +113,116 @@ public final class ArtworkThemeCheckActivity extends Activity {
                 ArtworkTheme.onPlaybackArtwork(metadataLoader, null, null);
                 main.post(() -> {
                     check(sample(current, 48, 48) == stock, "no artwork restores stock");
-                    deliver(Color.WHITE);
-                    status.setText("PASS — ジャケット連動と白ジャケットの可読性");
-                    Log.i("YmArtworkTest", "PASS: XML drawable, same-view toggle, track changes, reset, white gradient and role contrast");
+                    verifyLifecycle(() -> {
+                        deliver(Color.WHITE);
+                        status.setText("PASS — ジャケット連動と白ジャケットの可読性");
+                        Log.i("YmArtworkTest", "PASS: XML drawable, same-view toggle, track changes, reset, white gradient, role contrast and artwork lifecycle");
+                    });
+                });
+            });
+        });
+    }
+
+    private void verifyLifecycle(Runnable done) {
+        int primary = 0xff1e88e5, secondary = 0xff43a047;
+        int nativeSurface = ArtworkPalette.surfaceColor(ArtworkPalette.nativeSeed(primary, secondary), 100, false);
+        check(ArtworkTheme.playbackTile() == null, "no tile before the native-palette lifecycle");
+        ArtworkTheme.onNativePalette(primary, secondary);
+        main.post(() -> {
+            check(ArtworkTheme.playbackTile() == null, "native palette does not synthesize a tile");
+            check(sample(canvas.getBackground(), 48, 48) == nativeSurface, "native palette is an independent fallback");
+            check(nativeSurface != stock, "native fallback differs from stock");
+            verifyLoaderBind(primary, secondary, nativeSurface, done);
+        });
+    }
+
+    private void verifyLoaderBind(int primary, int secondary, int nativeSurface, Runnable done) {
+        ArtworkTheme.bindPlaybackArtwork(alternateLoader);
+        check(ArtworkTheme.playbackTile() == null, "rebinding without a sample leaves no tile");
+        deliver(alternateLoader, 0xff2255ff);
+        main.post(() -> {
+            check(ArtworkTheme.playbackTile() != null, "bound loader delivers a tile");
+            check(sample(canvas.getBackground(), 48, 48) != stock, "tile overrides the stock surface");
+            ArtworkTheme.bindPlaybackArtwork(metadataLoader);
+            check(ArtworkTheme.playbackTile() == null, "binding a different loader clears the tile");
+            main.post(() -> {
+                check(sample(canvas.getBackground(), 48, 48) == stock, "different-loader bind restores stock");
+                ArtworkTheme.bindPlaybackArtwork(metadataLoader);
+                deliver(metadataLoader, 0xff10b981);
+                main.post(() -> {
+                    lifecycleTile = ArtworkTheme.playbackTile();
+                    check(lifecycleTile != null, "re-delivered metadata samples a tile");
+                    lifecycleSurface = sample(canvas.getBackground(), 48, 48);
+                    ArtworkTheme.bindPlaybackArtwork(metadataLoader);
+                    main.post(() -> {
+                        check(ArtworkTheme.playbackTile() == lifecycleTile, "same-loader bind preserves the tile");
+                        check(sample(canvas.getBackground(), 48, 48) == lifecycleSurface, "same-loader bind keeps the surface");
+                        verifyUnbound(primary, secondary, nativeSurface, done);
+                    });
+                });
+            });
+        });
+    }
+
+    private void verifyUnbound(int primary, int secondary, int nativeSurface, Runnable done) {
+        Bitmap ignoredArtwork = artwork(0xffff0000);
+        ArtworkTheme.onPlaybackArtwork(new Object(), ignoredArtwork, null);
+        ignoredArtwork.recycle();
+        ArtworkTheme.onPlaybackArtwork(new Object(), null, null);
+        main.post(() -> {
+            check(ArtworkTheme.playbackTile() == lifecycleTile, "unbound callbacks leave the tile unchanged");
+            check(sample(canvas.getBackground(), 48, 48) == lifecycleSurface, "unbound callbacks leave the surface unchanged");
+            ArtworkTheme.onPlayerArtwork(null);
+            Bitmap ignoredPlayer = artwork(0xff00ff00);
+            ArtworkTheme.onPlayerArtwork(ignoredPlayer);
+            ignoredPlayer.recycle();
+            main.post(() -> {
+                check(ArtworkTheme.playbackTile() == lifecycleTile, "metadata tile is protected from player callbacks");
+                check(sample(canvas.getBackground(), 48, 48) == lifecycleSurface, "metadata surface is protected from player nulls");
+                verifyClears(primary, secondary, nativeSurface, done);
+            });
+        });
+    }
+
+    private void verifyClears(int primary, int secondary, int nativeSurface, Runnable done) {
+        ArtworkTheme.onNativePalette(primary, secondary);
+        main.post(() -> {
+            check(ArtworkTheme.playbackTile() == lifecycleTile, "native palette keeps the sampled tile");
+            ArtworkTheme.onPlaybackArtwork(metadataLoader, null, null);
+            check(ArtworkTheme.playbackTile() == null, "null metadata clears the tile");
+            main.post(() -> {
+                check(sample(canvas.getBackground(), 48, 48) == nativeSurface, "null metadata keeps the native palette fallback");
+                Bitmap fallback = artwork(0xff00c853);
+                ArtworkTheme.onPlayerArtwork(fallback);
+                fallback.recycle();
+                main.post(() -> {
+                    Bitmap playerTile = ArtworkTheme.playbackTile();
+                    check(playerTile != null, "player fallback samples a tile");
+                    int playerSurface = sample(canvas.getBackground(), 48, 48);
+                    check(playerSurface != stock, "player tile overrides the stock surface");
+                    ArtworkTheme.onPlayerArtwork(null);
+                    main.post(() -> {
+                        check(ArtworkTheme.playbackTile() == playerTile, "fallback player null keeps the tile");
+                        check(sample(canvas.getBackground(), 48, 48) == playerSurface, "fallback player null keeps the surface");
+                        ArtworkTheme.onPlaybackArtwork(metadataLoader, null, null);
+                        check(ArtworkTheme.playbackTile() == null, "metadata clear drops the player tile");
+                        main.post(() -> {
+                            check(sample(canvas.getBackground(), 48, 48) == nativeSurface, "cleared player tile returns to native fallback");
+                            deliver(metadataLoader, 0xff0ea5e9);
+                            main.post(() -> {
+                                check(ArtworkTheme.playbackTile() != null, "valid metadata samples a fresh tile");
+                                check(sample(canvas.getBackground(), 48, 48) != stock, "metadata tile overrides the stock surface");
+                                Bitmap transparent = artwork(0);
+                                ArtworkTheme.onPlaybackArtwork(metadataLoader, transparent, null);
+                                transparent.recycle();
+                                check(ArtworkTheme.playbackTile() == null, "transparent sample failure clears the tile");
+                                main.post(() -> {
+                                    check(sample(canvas.getBackground(), 48, 48) == nativeSurface, "transparent failure falls back to the native palette");
+                                    done.run();
+                                });
+                            });
+                        });
+                    });
                 });
             });
         });
@@ -130,10 +240,19 @@ public final class ArtworkThemeCheckActivity extends Activity {
     }
 
     private void deliver(int color) {
+        deliver(metadataLoader, color);
+    }
+
+    private void deliver(Object loader, int color) {
+        Bitmap bitmap = artwork(color);
+        ArtworkTheme.onPlaybackArtwork(loader, bitmap, null);
+        bitmap.recycle();
+    }
+
+    private Bitmap artwork(int color) {
         Bitmap bitmap = Bitmap.createBitmap(24, 24, Bitmap.Config.ARGB_8888);
         bitmap.eraseColor(color);
-        ArtworkTheme.onPlaybackArtwork(metadataLoader, bitmap, null);
-        bitmap.recycle();
+        return bitmap;
     }
 
     private void setImage(int color) {

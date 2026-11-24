@@ -10,6 +10,7 @@ import app.morphe.patcher.util.smali.ExternalLabel
 import com.android.tools.smali.dexlib2.Opcode
 
 private const val POLICY = "Lapp/morphe/extension/ym/PlaybackNetworkPolicy;"
+private const val DATA_DIAGNOSTICS = "Lapp/morphe/extension/ym/DataSavingDiagnostics;"
 
 /** Version-specific, fail-closed hooks. No generic HTTP or current-stream interception. */
 internal fun installPlaybackPriorityHooks() {
@@ -39,6 +40,10 @@ internal fun installPlaybackPriorityHooks() {
         move-result-object v0
         return-object v0
     """, ExternalLabel("original", admission.getInstruction(0)))
+
+    // Pure diagnostics entry marker: no register use, inserted ahead of every
+    // existing admission check and a no-op unless diagnostics are enabled.
+    admission.addInstruction(0, "invoke-static {}, $DATA_DIAGNOSTICS->onPrefetchEntry()V")
 
     data class Event(val method: String, val parameters: List<String>, val evidence: String, val hook: String)
     listOf(

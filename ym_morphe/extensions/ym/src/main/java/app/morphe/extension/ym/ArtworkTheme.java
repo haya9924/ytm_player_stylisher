@@ -33,6 +33,7 @@ public final class ArtworkTheme {
     private static WeakReference<Object> playbackLoader = new WeakReference<>(null);
     private static WeakReference<Bitmap> sampled = new WeakReference<>(null);
     private static int sampledGeneration;
+    private static int sampledSeed;
     private static boolean metadataArtwork;
     private static Bitmap albumTile;
     private static final int TILE_SIZE = 32;
@@ -67,25 +68,50 @@ public final class ArtworkTheme {
     }
 
     public static synchronized void bindPlaybackArtwork(Object loader) {
+        if (loader == playbackLoader.get()) return;
         playbackLoader = new WeakReference<>(loader);
+        clearSampledArtwork();
+        hasArtwork = false;
     }
 
     public static synchronized void onPlaybackArtwork(Object loader, Bitmap large, Bitmap small) {
         if (Looper.myLooper() != Looper.getMainLooper() || loader != playbackLoader.get()) return;
-        if (!usable(large) && !usable(small)) {
-            metadataArtwork = false;
-            albumTile = null;
-            sampled.clear();
-            scheduleApply();
+        boolean largeUsable = usable(large);
+        boolean smallUsable = usable(small);
+        if (!largeUsable && !smallUsable) {
+            clearSampledArtwork();
             return;
         }
-        if (sampleArtwork(usable(small) ? small : large)) metadataArtwork = true;
+        Bitmap preferred = smallUsable ? small : large;
+        if (sampleArtwork(preferred)) {
+            metadataArtwork = true;
+            return;
+        }
+        Bitmap other = preferred == large ? small : large;
+        if (other != preferred && usable(other) && sampleArtwork(other)) {
+            metadataArtwork = true;
+            return;
+        }
+        clearSampledArtwork();
     }
 
     /** Full-player callback uses the host's current artwork, never a nearby pager item. */
     public static synchronized void onPlayerArtwork(Bitmap bitmap) {
-        if (Looper.myLooper() != Looper.getMainLooper() || metadataArtwork || !usable(bitmap)) return;
-        sampleArtwork(bitmap);
+        if (Looper.myLooper() != Looper.getMainLooper() || metadataArtwork) return;
+        // A null or unusable frame is transient on teardown; keep the last valid tile.
+        // A failed sample of a real bitmap must not leave the stale tile behind.
+        if (!usable(bitmap)) return;
+        if (!sampleArtwork(bitmap)) clearSampledArtwork();
+    }
+
+    /** Drop the sampled tile only; the native palette stays valid until its owner replaces it. */
+    private static void clearSampledArtwork() {
+        metadataArtwork = false;
+        albumTile = null;
+        sampled.clear();
+        sampledGeneration = 0;
+        sampledSeed = 0;
+        scheduleApply();
     }
 
     private static boolean usable(Bitmap bitmap) {
@@ -124,8 +150,6 @@ public final class ArtworkTheme {
             if (source != null && source != bitmap) source.recycle();
         }
     }
-
-    private static int sampledSeed;
 
     static synchronized Bitmap playbackTile() { return albumTile; }
 

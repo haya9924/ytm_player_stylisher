@@ -12,7 +12,7 @@ import app.morphe.patcher.patch.resourceXml
 @Suppress("unused")
 val classicPlayerPatch = patch(
     name = "ym_morphe",
-    description = "Restyles the fullscreen player and adds an option to hide the audio/video switch.",
+    description = "Restyles the player and adds an optional artwork-based app theme.",
     default = false,
 ) {
     compatibleWith(
@@ -26,9 +26,30 @@ val classicPlayerPatch = patch(
 
     extendWith("extensions/ym.mpe")
 
+    val lowDataResume by booleanOption(
+        key = "lowDataPlaybackResume",
+        default = false,
+        title = "前回の再生を少ない通信で再開する（実験的）",
+        description = "端末のキューを一時停止で復元した場合、追加のサーバーキュー取得を省きます。",
+    )
+    val dataSavingDiagnostics by booleanOption(
+        key = "dataSavingDiagnostics",
+        default = false,
+        title = "データ節約を診断する（開発用）",
+        description = "通信を変更せず、先読みの制限と復元後のキュー取得について固定メッセージを記録します。",
+    )
+
     execute {
+        if (dataSavingDiagnostics == true) enableDataSavingDiagnostics()
+        if (lowDataResume == true || dataSavingDiagnostics == true) {
+            installLowDataPlaybackResumeHook(save = lowDataResume == true, diagnostics = dataSavingDiagnostics == true)
+        }
         installPlaybackPriorityHooks()
         installAudioVideoPillHooks()
+        installArtworkPaletteHooks()
+        installArtworkBitmapHooks()
+        installArtworkLithoHooks()
+        installArtworkSurfaceResources()
         // The Settings activity starts preference intents. Make our intent explicit at runtime
         // so it works with Android 14+ and with arbitrary cloned package names.
         Fingerprint(

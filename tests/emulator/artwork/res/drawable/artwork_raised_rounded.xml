@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Role 2 (raised) over a rounded, opaque stock shape. -->
+<app.morphe.extension.ym.ArtworkSurfaceDrawable
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/artwork_stock_rounded"
+    android:level="2" />

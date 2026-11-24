@@ -144,8 +144,15 @@ public final class ArtworkGradientView extends View implements Runnable, ViewTre
 
     private void updateArtwork() {
         if (owner == null) { markArtworkUnavailable(); return; }
+        Bitmap liveTile = ArtworkTheme.playbackTile();
+        if (liveTile != null) {
+            missingSince = 0;
+            if (blurred != liveTile) showTile(liveTile);
+            return;
+        }
         View candidate = thumbnailId == 0 ? null : owner.findViewById(thumbnailId);
-        Bitmap bitmap = candidate instanceof ImageView
+        Bitmap bitmap = candidate instanceof ImageView && candidate.isShown()
+                && candidate.getGlobalVisibleRect(checkedBounds)
                 ? findBitmap(((ImageView) candidate).getDrawable(), 0) : null;
         if (!usable(bitmap)) {
             // The swipeable miniplayer uses a different image. Restrict the fallback
@@ -176,19 +183,27 @@ public final class ArtworkGradientView extends View implements Runnable, ViewTre
             canvas.drawBitmap(sample, null, new Rect(0, 0, SIZE, SIZE), paint);
             int[] pixels = new int[SIZE * SIZE];
             next.getPixels(pixels, 0, SIZE, 0, 0, SIZE, SIZE);
-            next.setPixels(ArtworkBlur.blur(pixels, SIZE, 4, 3), 0, SIZE, 0, 0, SIZE, SIZE);
-            previousBlur = blurred;
-            transitionStarted = SystemClock.uptimeMillis();
-            blurred = next;
-            cachedBlur = next;
-            cachedAt = SystemClock.elapsedRealtime();
+            int[] soft = ArtworkBlur.blur(pixels, SIZE, 4, 3);
+            // Guard the pixels before filtering, cropping or crossfading so every frame is
+            // safe for the native white and translucent-white text and controls.
+            for (int i = 0; i < soft.length; i++) soft[i] = ArtworkPalette.protectPlayerPixel(soft[i]);
+            next.setPixels(soft, 0, SIZE, 0, 0, SIZE, SIZE);
+            showTile(next);
             lastBitmap = new WeakReference<>(bitmap);
             lastGeneration = generation;
             missingSince = 0;
-            invalidate();
         } finally {
             if (copied) sample.recycle();
         }
+    }
+
+    private void showTile(Bitmap next) {
+        previousBlur = blurred;
+        transitionStarted = SystemClock.uptimeMillis();
+        blurred = next;
+        cachedBlur = next;
+        cachedAt = SystemClock.elapsedRealtime();
+        invalidate();
     }
 
     private static boolean usable(Bitmap bitmap) {
@@ -271,8 +286,13 @@ public final class ArtworkGradientView extends View implements Runnable, ViewTre
 
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
-        canvas.drawColor(themeColor());
-        if (blurred == null || strength <= 0 || getWidth() == 0 || getHeight() == 0) return;
+        if (strength == 0) {
+            canvas.drawColor(ArtworkPalette.protectPlayerPixel(themeColor()));
+            return;
+        }
+        // Pending/unsupported artwork must not mask the native player's own guarded gradient.
+        if (blurred == null || strength < 0 || getWidth() == 0 || getHeight() == 0) return;
+        canvas.drawColor(ArtworkPalette.protectPlayerPixel(themeColor()));
         Rect bounds = visibleBounds.isEmpty() ? new Rect(0, 0, getWidth(), getHeight()) : visibleBounds;
         if (!ArtworkCrop.centerCover(bounds.left, bounds.top, bounds.right, bounds.bottom, SIZE, crop)) return;
         destination.set(crop[0], crop[1], crop[2], crop[3]);

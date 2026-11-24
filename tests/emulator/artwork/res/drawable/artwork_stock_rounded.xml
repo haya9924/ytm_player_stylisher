@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Opaque rounded stock shape: the tint must keep the stock corner geometry. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/artwork_test_stock_raised" />
+    <corners android:radius="16dp" />
+</shape>

@@ -63,8 +63,20 @@ public final class GradientSettingsActivity extends Activity {
         });
         layout.addView(seek);
         TextView explanation = new TextView(this);
-        explanation.setText("0%：テーマの背景色　100%：ぼかしたジャケット画像");
+        explanation.setText("0%：テーマの背景色　100%：ぼかしたジャケット画像。文字が読めるよう明るさを調整します。");
         layout.addView(explanation);
+        ArtworkTheme.initialize(this);
+        Switch artworkTheme = new Switch(this);
+        artworkTheme.setText("ジャケットの色をアプリ全体に反映");
+        artworkTheme.setPadding(0, pad, 0, 0);
+        SharedPreferences preferences = getSharedPreferences(PREFS, MODE_PRIVATE);
+        artworkTheme.setChecked(preferences.getBoolean(ArtworkTheme.ENABLED, false));
+        artworkTheme.setOnCheckedChangeListener((button, checked) ->
+                preferences.edit().putBoolean(ArtworkTheme.ENABLED, checked).apply());
+        layout.addView(artworkTheme);
+        TextView themeDescription = new TextView(this);
+        themeDescription.setText("再生中のジャケットに合わせて、アプリの背景やバーの色を変えます。プレイヤーとは明るさを変えて見分けやすくします。再起動は不要です。");
+        layout.addView(themeDescription);
         PlaybackNetworkPolicy.initialize(this);
         Switch pills = new Switch(this);
         pills.setText("音声・動画の切り替えボタンを非表示");
@@ -96,6 +108,8 @@ public final class GradientSettingsActivity extends Activity {
         buttonParams.gravity = Gravity.END;
         layout.addView(close, buttonParams);
         ScrollView scroll = new ScrollView(this);
+        scroll.setBackground(ArtworkTheme.background(new android.graphics.drawable.ColorDrawable(
+                android.graphics.Color.TRANSPARENT), ArtworkSurfaceDrawable.CANVAS));
         scroll.addView(layout);
         setContentView(scroll);
         if (state == null) layout.requestFocus();

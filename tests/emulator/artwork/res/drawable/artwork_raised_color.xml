@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Role 2 (raised) over an opaque stock colour (ColorDrawable path). -->
+<app.morphe.extension.ym.ArtworkSurfaceDrawable
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@color/artwork_test_stock_raised"
+    android:level="2" />

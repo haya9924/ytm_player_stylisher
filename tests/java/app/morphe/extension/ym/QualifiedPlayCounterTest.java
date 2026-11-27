@@ -7,6 +7,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 
@@ -42,6 +43,9 @@ public final class QualifiedPlayCounterTest {
             perTrackSaturationRejectsNewSessions();
             globalBoundFailsSafeWithoutEviction();
             blockedPathsFailClosed();
+            qualifiedTrackKeysSelectsReachedThresholds();
+            trackPlayCountsAreReadOnly();
+            allTrackPlayCountsAggregateAccounts();
             System.out.println("QualifiedPlayCounter tests passed");
         } finally {
             delete(dir);
@@ -258,6 +262,137 @@ public final class QualifiedPlayCounterTest {
         result(blocked.recordOnce("a", "t", "s"), RecordResult.UNAVAILABLE, "parent is a file");
         check(Arrays.equals(Files.readAllBytes(parentFile), new byte[] {42}),
                 "blocked store must leave its parent file untouched");
+    }
+
+    private static void qualifiedTrackKeysSelectsReachedThresholds() throws IOException {
+        Path file = dir.resolve("qualified-keys.bin");
+        QualifiedPlayCounter counter = new QualifiedPlayCounter(file);
+
+        // Missing store yields an empty set and must not be created.
+        check(counter.qualifiedTrackKeys("acct", 2).isEmpty(), "missing store has no keys");
+        check(!Files.exists(file), "qualifiedTrackKeys must not create a store");
+
+        result(counter.recordOnce("acct", "hot", "s1"), RecordResult.RECORDED, "hot s1");
+        result(counter.recordOnce("acct", "hot", "s2"), RecordResult.RECORDED, "hot s2");
+        result(counter.recordOnce("acct", "cold", "s1"), RecordResult.RECORDED, "cold s1");
+        result(counter.recordOnce("other", "hot", "s1"), RecordResult.RECORDED, "other hot s1");
+        result(counter.recordOnce("other", "hot", "s2"), RecordResult.RECORDED, "other hot s2");
+
+        check(counter.qualifiedTrackKeys("acct", 2).equals(java.util.Set.of("hot")),
+                "only the reached track is returned: " + counter.qualifiedTrackKeys("acct", 2));
+        check(counter.qualifiedTrackKeys("acct", 1).equals(java.util.Set.of("hot", "cold")),
+                "threshold 1 returns every track");
+        check(counter.qualifiedTrackKeys("acct", 3).isEmpty(), "threshold 3 excludes all tracks");
+        check(counter.qualifiedTrackKeys("other", 2).equals(java.util.Set.of("hot")),
+                "accounts are separated");
+        check(counter.qualifiedTrackKeys("unknown", 1).isEmpty(), "unknown account is empty");
+
+        // Invalid input is empty, and the returned set is unmodifiable.
+        check(counter.qualifiedTrackKeys(null, 1).isEmpty(), "null account is empty");
+        check(counter.qualifiedTrackKeys("", 1).isEmpty(), "blank account is empty");
+        check(counter.qualifiedTrackKeys("acct", 0).isEmpty(), "threshold 0 is empty");
+        check(counter.qualifiedTrackKeys("acct", -1).isEmpty(), "negative threshold is empty");
+        List<String> unmodifiable = new ArrayList<>(counter.qualifiedTrackKeys("acct", 1));
+        try {
+            counter.qualifiedTrackKeys("acct", 1).add("injected");
+            check(false, "returned set must be unmodifiable");
+        } catch (UnsupportedOperationException expected) {
+            check(unmodifiable.size() == 2, "unmodifiable set keeps its contents");
+        }
+
+        // A malformed snapshot yields an empty set and is never rewritten.
+        Path malformed = dir.resolve("qualified-malformed.bin");
+        byte[] broken = "not a snapshot".getBytes(StandardCharsets.US_ASCII);
+        Files.write(malformed, broken);
+        QualifiedPlayCounter brokenCounter = new QualifiedPlayCounter(malformed);
+        check(brokenCounter.qualifiedTrackKeys("acct", 1).isEmpty(), "malformed store is empty");
+        check(Arrays.equals(Files.readAllBytes(malformed), broken),
+                "malformed store must not be rewritten");
+
+        // Reopening keeps the selection deterministic.
+        check(new QualifiedPlayCounter(file).qualifiedTrackKeys("acct", 2).equals(
+                java.util.Set.of("hot")), "selection survives reopen");
+    }
+
+    private static void trackPlayCountsAreReadOnly() throws IOException {
+        Path file = dir.resolve("track-counts.bin");
+        QualifiedPlayCounter counter = new QualifiedPlayCounter(file);
+
+        // A missing store is empty and must never be created by a read.
+        check(counter.trackPlayCounts("acct").length == 0, "missing store has no counts");
+        check(counter.trackPlayCounts(null).length == 0, "null account is empty");
+        check(counter.trackPlayCounts("").length == 0, "blank account is empty");
+        check(!Files.exists(file), "trackPlayCounts must not create the store");
+
+        result(counter.recordOnce("acct", "cold", "s1"), RecordResult.RECORDED, "cold s1");
+        result(counter.recordOnce("acct", "hot", "s1"), RecordResult.RECORDED, "hot s1");
+        result(counter.recordOnce("acct", "hot", "s2"), RecordResult.RECORDED, "hot s2");
+        result(counter.recordOnce("acct", "hot", "s3"), RecordResult.RECORDED, "hot s3");
+        result(counter.recordOnce("other", "hot", "s1"), RecordResult.RECORDED, "other hot s1");
+        byte[] before = Files.readAllBytes(file);
+
+        // Counts are per track in store insertion order and never expose the track id.
+        int[] counts = counter.trackPlayCounts("acct");
+        check(counts.length == 2, "one count per track: " + Arrays.toString(counts));
+        List<Integer> sorted = new ArrayList<>();
+        for (int count : counts) sorted.add(count);
+        Collections.sort(sorted);
+        check(sorted.equals(Arrays.asList(1, 3)), "counts are the session sizes: " + sorted);
+        check(counter.trackPlayCounts("other").length == 1, "accounts are separated");
+        check(counter.trackPlayCounts("other")[0] == 1, "other account count");
+        check(counter.trackPlayCounts("unknown").length == 0, "unknown account is empty");
+        check(Arrays.equals(Files.readAllBytes(file), before),
+                "reading counts must not rewrite the store");
+
+        // A malformed store is empty and is not rewritten.
+        Path malformed = dir.resolve("track-counts-malformed.bin");
+        byte[] broken = "not a snapshot".getBytes(StandardCharsets.US_ASCII);
+        Files.write(malformed, broken);
+        QualifiedPlayCounter brokenCounter = new QualifiedPlayCounter(malformed);
+        check(brokenCounter.trackPlayCounts("acct").length == 0, "malformed store is empty");
+        check(Arrays.equals(Files.readAllBytes(malformed), broken),
+                "malformed store must not be rewritten");
+    }
+
+    private static void allTrackPlayCountsAggregateAccounts() throws IOException {
+        Path file = dir.resolve("all-track-counts.bin");
+        QualifiedPlayCounter counter = new QualifiedPlayCounter(file);
+
+        check(counter.allTrackPlayCounts().length == 0, "missing store has no counts");
+        check(!Files.exists(file), "allTrackPlayCounts must not create the store");
+
+        result(counter.recordOnce("acct1", "shared", "s1"), RecordResult.RECORDED, "acct1 shared");
+        result(counter.recordOnce("acct1", "solo", "s1"), RecordResult.RECORDED, "acct1 solo");
+        result(counter.recordOnce("acct2", "shared", "s1"), RecordResult.RECORDED, "acct2 shared");
+        result(counter.recordOnce("acct2", "shared", "s2"), RecordResult.RECORDED, "acct2 shared 2");
+        result(counter.recordOnce("acct3", "cold", "s1"), RecordResult.RECORDED, "acct3 cold");
+        byte[] before = Files.readAllBytes(file);
+
+        // The same derived track key across accounts is summed; the raw id is never returned.
+        int[] counts = counter.allTrackPlayCounts();
+        check(counts.length == 3, "one count per distinct track key: " + Arrays.toString(counts));
+        List<Integer> sorted = new ArrayList<>();
+        for (int count : counts) sorted.add(count);
+        Collections.sort(sorted);
+        check(sorted.equals(Arrays.asList(1, 1, 3)),
+                "shared track is summed across accounts: " + sorted);
+        check(Arrays.equals(Files.readAllBytes(file), before),
+                "aggregating must not rewrite the store");
+
+        // An empty snapshot (header only) yields an empty array.
+        Path empty = dir.resolve("all-track-counts-empty.bin");
+        Files.write(empty, snapshot(new String[0][]));
+        check(new QualifiedPlayCounter(empty).allTrackPlayCounts().length == 0,
+                "an empty store has no counts");
+
+        // A malformed store is empty and is not rewritten.
+        Path malformed = dir.resolve("all-track-counts-malformed.bin");
+        byte[] broken = "not a snapshot".getBytes(StandardCharsets.US_ASCII);
+        Files.write(malformed, broken);
+        check(new QualifiedPlayCounter(malformed).allTrackPlayCounts().length == 0,
+                "malformed store is empty");
+        check(Arrays.equals(Files.readAllBytes(malformed), broken),
+                "malformed store must not be rewritten");
     }
 
     private static byte[] snapshot(String[][] entries) throws IOException {

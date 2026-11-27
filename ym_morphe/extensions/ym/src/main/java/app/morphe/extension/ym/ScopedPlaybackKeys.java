@@ -80,19 +80,59 @@ final class ScopedPlaybackKeys {
         }
         if (account.startsWith(PRIMORDIAL_PREFIX)) return null;
 
-        Mac mac;
-        try {
-            mac = Mac.getInstance(ALGORITHM);
-            mac.init(new SecretKeySpec(secret, ALGORITHM));
-        } catch (GeneralSecurityException | IllegalArgumentException e) {
-            // No provider, no algorithm, or a rejected key: fail closed without a fallback.
-            return null;
-        }
+        Mac mac = mac(secret);
+        if (mac == null) return null;
 
         String accountKey = hex(mac(mac, DOMAIN_ACCOUNT, account));
         String trackKey = hex(mac(mac, DOMAIN_TRACK, account, track));
         String sessionKey = hex(mac(mac, DOMAIN_SESSION, account, track, session));
         return new Keys(accountKey, trackKey, sessionKey);
+    }
+
+    /**
+     * Derives only the account key.
+     *
+     * @param secret installation secret, exactly {@value #SECRET_BYTES} bytes; never retained
+     * @param account opaque account identifier
+     * @return the 64-character lower-case hex key, or {@code null} under the same input rules as
+     *         {@link #derive(byte[], String, String, String)}
+     */
+    static String deriveAccountKey(byte[] secret, String account) {
+        if (secret == null || secret.length != SECRET_BYTES) return null;
+        if (!QualifiedPlayCounter.isValidId(account)) return null;
+        if (account.startsWith(PRIMORDIAL_PREFIX)) return null;
+        Mac mac = mac(secret);
+        return mac == null ? null : hex(mac(mac, DOMAIN_ACCOUNT, account));
+    }
+
+    /**
+     * Derives only the account plus track key.
+     *
+     * @param secret installation secret, exactly {@value #SECRET_BYTES} bytes; never retained
+     * @param account opaque account identifier
+     * @param track opaque track identifier
+     * @return the 64-character lower-case hex key, or {@code null} under the same input rules as
+     *         {@link #derive(byte[], String, String, String)}
+     */
+    static String deriveTrackKey(byte[] secret, String account, String track) {
+        if (secret == null || secret.length != SECRET_BYTES) return null;
+        if (!QualifiedPlayCounter.isValidId(account) || !QualifiedPlayCounter.isValidId(track)) {
+            return null;
+        }
+        if (account.startsWith(PRIMORDIAL_PREFIX)) return null;
+        Mac mac = mac(secret);
+        return mac == null ? null : hex(mac(mac, DOMAIN_TRACK, account, track));
+    }
+
+    private static Mac mac(byte[] secret) {
+        try {
+            Mac mac = Mac.getInstance(ALGORITHM);
+            mac.init(new SecretKeySpec(secret, ALGORITHM));
+            return mac;
+        } catch (GeneralSecurityException | IllegalArgumentException e) {
+            // No provider, no algorithm, or a rejected key: fail closed without a fallback.
+            return null;
+        }
     }
 
     private static byte[] mac(Mac mac, byte domain, String... values) {

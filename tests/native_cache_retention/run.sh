@@ -28,8 +28,17 @@ mkdir -p "$classes"
 "$javac" --release 8 -Xlint:-options -d "$classes" \
     "$extensions/NativeCacheRetention.java" \
     "$extensions/QualifiedPlayCounter.java" \
+    "$extensions/ScopedPlaybackKeys.java" \
     "$extensions/CacheRetentionCriteria.java" \
+    "$extensions/CacheSavingsEstimator.java" \
+    "$extensions/CacheRetentionPreferences.java" \
+    "$extensions/ScopedPlaybackRecordingBridge.java" \
     "$here/stubs/app/morphe/extension/ym/ScopedPlayHost.java" \
+    "$here/stubs/app/morphe/extension/ym/GradientSettingsActivity.java" \
+    "$here/stubs/android/app/Application.java" \
+    "$here/stubs/android/content/Context.java" \
+    "$here/stubs/android/content/SharedPreferences.java" \
+    "$here/stubs/android/os/Build.java" \
     "$here/stubs/android/util/Log.java" \
     "$here/stubs/android/os/SystemClock.java" \
     "$here/fakes/audf.java" \

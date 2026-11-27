@@ -10,6 +10,10 @@ public final class augy {
     public final Map<String, Object> A = new LinkedHashMap<>();
     /** Reflected as "n": decoded key to entry map. */
     public final Map<String, aufs> n = new LinkedHashMap<>();
+    /** Reflected as "e": live used-byte counter; present only on the telemetry fake. */
+    public Object e;
+    /** Reflected as "h": host cache lock; present only on the telemetry fake. */
+    public Object h;
 
     /** Adds one audio-only entry for {@code key} using every supported audio itag. */
     public augy audio(String key, int... itags) {

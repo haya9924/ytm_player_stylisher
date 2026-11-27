@@ -16,6 +16,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.security.SecureRandom;
+import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -54,6 +55,16 @@ public final class ScopedPlaybackRecordingBridge {
     private static volatile Context appContext;
     private static volatile ExecutorService executor;
     private static Candidate candidate;
+    private static String hydratedAccount;
+    private static int hydratedThreshold;
+    private static long hydratedGeneration = -1L;
+    /*
+     * Preference bridge. NativeCacheRetention deliberately has no android.content dependency, so
+     * the Android-facing preference wiring stays here: read the current snapshot, publish it, and
+     * keep the listener strongly referenced so it is not garbage collected.
+     */
+    private static SharedPreferences observedPrefs;
+    private static SharedPreferences.OnSharedPreferenceChangeListener preferenceListener;
 
     private ScopedPlaybackRecordingBridge() {}
 
@@ -72,6 +83,9 @@ public final class ScopedPlaybackRecordingBridge {
             return;
         }
         if (app == null) return;
+        // Publish the current retention preferences even when recording stays disabled; the
+        // listener only re-publishes on later changes.
+        observePreferences(app);
         synchronized (LOCK) {
             if (executor != null) return;
             appContext = app;
@@ -98,6 +112,7 @@ public final class ScopedPlaybackRecordingBridge {
         if (!recording) return;
         SharedPreferences prefs = preferences();
         CacheRetentionCriteria criteria = CacheRetentionPreferences.read(prefs);
+        HydrateTask hydrate = null;
         synchronized (LOCK) {
             Candidate previous = candidate;
             if (previous != null) previous.terminal = true;
@@ -108,8 +123,19 @@ public final class ScopedPlaybackRecordingBridge {
                 candidate = new Candidate(stats2);
                 return;
             }
-            candidate = new Candidate(stats2, account, track, session, criteria);
+            Candidate created = new Candidate(stats2, account, track, session, criteria);
+            candidate = created;
+            // One-shot cold-start hydration per account, threshold, and account epoch.
+            if (hydratedGeneration != created.scopeGeneration
+                    || hydratedThreshold != criteria.playCount
+                    || !account.equals(hydratedAccount)) {
+                hydratedAccount = account;
+                hydratedThreshold = criteria.playCount;
+                hydratedGeneration = created.scopeGeneration;
+                hydrate = new HydrateTask(account, criteria.playCount, created.scopeGeneration);
+            }
         }
+        if (hydrate != null) submitHydration(hydrate);
     }
 
     /**
@@ -160,6 +186,79 @@ public final class ScopedPlaybackRecordingBridge {
         }
     }
 
+    /** Publishes the retention preferences and keeps listening for later changes. */
+    private static void observePreferences(Context context) {
+        SharedPreferences prefs;
+        try {
+            prefs = context.getSharedPreferences(GradientSettingsActivity.PREFS, Context.MODE_PRIVATE);
+        } catch (RuntimeException unavailable) {
+            return;
+        }
+        if (prefs == null) return;
+        publishPreferences(prefs);
+        synchronized (LOCK) {
+            if (observedPrefs == prefs) return;
+            if (observedPrefs != null && preferenceListener != null) {
+                try {
+                    observedPrefs.unregisterOnSharedPreferenceChangeListener(preferenceListener);
+                } catch (RuntimeException ignored) {
+                    // The old listener is unreachable anyway.
+                }
+            }
+            if (preferenceListener == null) {
+                preferenceListener = (changed, key) -> {
+                    SharedPreferences current = observedPrefs;
+                    if (current != null) publishPreferences(current);
+                };
+            }
+            observedPrefs = prefs;
+            try {
+                prefs.registerOnSharedPreferenceChangeListener(preferenceListener);
+            } catch (RuntimeException ignored) {
+                // Listening is best effort; the current snapshot was already published.
+            }
+        }
+    }
+
+    /** Copies the retention flag and budget into the native policy holder. */
+    private static void publishPreferences(SharedPreferences prefs) {
+        NativeCacheRetention.applyPreferences(
+                CacheRetentionPreferences.readRetentionEnabled(prefs),
+                CacheRetentionPreferences.readBudgetMiB(prefs));
+    }
+
+    /**
+     * Reads recorded per-track play counts without creating the store.
+     *
+     * <p>Only pre-existing {@code install.key} and {@code qualified.plays} files are read. When an
+     * active account is supplied the counts are scoped to it; otherwise every stored account is
+     * aggregated. Any failure yields an empty array.
+     */
+    static int[] readRecordedPlayCounts(Context context, String activeAccount) {
+        if (context == null) return new int[0];
+        try {
+            File root = context.getNoBackupFilesDir();
+            if (root == null) return new int[0];
+            File directory = new File(root, STORE_DIRECTORY);
+            File tokenFile = new File(directory, TOKEN_FILE);
+            File store = new File(directory, COUNTER_FILE);
+            // Read-only: never create the directory, the key, or the store.
+            if (!directory.isDirectory() || !tokenFile.isFile() || !store.isFile()) return new int[0];
+            QualifiedPlayCounter counter = new QualifiedPlayCounter(store.toPath());
+            if (QualifiedPlayCounter.isValidId(activeAccount)) {
+                if (tokenFile.length() != SECRET_BYTES) return new int[0];
+                byte[] token = Files.readAllBytes(tokenFile.toPath());
+                if (token.length != SECRET_BYTES) return new int[0];
+                String accountKey = ScopedPlaybackKeys.deriveAccountKey(token, activeAccount);
+                if (accountKey == null) return new int[0];
+                return counter.trackPlayCounts(accountKey);
+            }
+            return counter.allTrackPlayCounts();
+        } catch (IOException | RuntimeException unavailable) {
+            return new int[0];
+        }
+    }
+
     private static boolean isAppProcess(Context context) {
         if (context == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return false;
         try {
@@ -187,6 +286,30 @@ public final class ScopedPlaybackRecordingBridge {
     private static void retry(Candidate generation) {
         synchronized (LOCK) {
             if (candidate == generation) generation.claimed = false;
+        }
+    }
+
+    /** Submits the one-shot hydration; a rejected submission releases the claim so a retry can run. */
+    private static void submitHydration(HydrateTask task) {
+        ExecutorService pool = executor;
+        if (pool == null) {
+            resetHydrationClaim(task);
+            return;
+        }
+        try {
+            pool.execute(task);
+        } catch (RuntimeException rejected) {
+            resetHydrationClaim(task);
+        }
+    }
+
+    private static void resetHydrationClaim(HydrateTask task) {
+        synchronized (LOCK) {
+            if (hydratedGeneration != task.scopeGeneration || hydratedThreshold != task.threshold
+                    || !task.account.equals(hydratedAccount)) return;
+            hydratedAccount = null;
+            hydratedThreshold = 0;
+            hydratedGeneration = -1L;
         }
     }
 
@@ -219,6 +342,42 @@ public final class ScopedPlaybackRecordingBridge {
                     threshold, scopeGeneration);
         }
         return result;
+    }
+
+    /**
+     * Reads a pre-existing store once so already-qualified tracks survive a cold start. Never
+     * creates the key, the directory, or the store just for hydration.
+     */
+    private static void hydrate(String account, int threshold, long scopeGeneration) {
+        if (NativeCacheRetention.generation() != scopeGeneration) return;
+        Context context = appContext;
+        if (context == null) return;
+        File directory;
+        try {
+            File root = context.getNoBackupFilesDir();
+            directory = root == null ? null : new File(root, STORE_DIRECTORY);
+        } catch (RuntimeException unavailable) {
+            return;
+        }
+        if (directory == null) return;
+        File tokenFile = new File(directory, TOKEN_FILE);
+        File store = new File(directory, COUNTER_FILE);
+        // Hydration is read-only: both files must already exist, and no directory is created.
+        if (!directory.isDirectory() || !tokenFile.isFile() || !store.isFile()) return;
+        byte[] token;
+        try {
+            if (tokenFile.length() != SECRET_BYTES) return;
+            token = Files.readAllBytes(tokenFile.toPath());
+        } catch (IOException | SecurityException unavailable) {
+            return;
+        }
+        if (token.length != SECRET_BYTES) return;
+        String accountKey = ScopedPlaybackKeys.deriveAccountKey(token, account);
+        if (accountKey == null) return;
+        Set<String> keys = new QualifiedPlayCounter(store.toPath())
+                .qualifiedTrackKeys(accountKey, threshold);
+        if (keys.isEmpty()) return;
+        NativeCacheRetention.hydratePersisted(account, token, keys, scopeGeneration);
     }
 
     private static byte[] token(File directory, File store) {
@@ -306,6 +465,28 @@ public final class ScopedPlaybackRecordingBridge {
             this.track = track;
             this.session = session;
             this.criteria = criteria;
+        }
+    }
+
+    /** One-shot cold-start hydration; captures the account epoch so it can never rebind. */
+    private static final class HydrateTask implements Runnable {
+        final String account;
+        final int threshold;
+        final long scopeGeneration;
+
+        HydrateTask(String account, int threshold, long scopeGeneration) {
+            this.account = account;
+            this.threshold = threshold;
+            this.scopeGeneration = scopeGeneration;
+        }
+
+        @Override
+        public void run() {
+            try {
+                hydrate(account, threshold, scopeGeneration);
+            } catch (RuntimeException unavailable) {
+                // Hydration is best effort and must never crash the worker.
+            }
         }
     }
 

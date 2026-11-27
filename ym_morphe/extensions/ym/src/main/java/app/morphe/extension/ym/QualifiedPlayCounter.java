@@ -13,9 +13,11 @@ import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Durable counter of distinct qualified sessions per account and track.
@@ -98,6 +100,76 @@ final class QualifiedPlayCounter {
         if (read.status == Status.MISSING) return 0;
         if (read.status == Status.INVALID) return -1;
         return Math.min(read.store.count(account, track), MAX_PER_TRACK);
+    }
+
+    /**
+     * Track keys under {@code account} whose recorded session count reached {@code threshold}.
+     *
+     * <p>Read-only: a missing store yields an empty set and a malformed or unreadable store also
+     * yields an empty set, and the file is never rewritten or created. The returned set is
+     * unmodifiable.
+     */
+    synchronized Set<String> qualifiedTrackKeys(String account, int threshold) {
+        if (!isValidId(account) || threshold < 1) return Collections.emptySet();
+        ReadResult read = read();
+        if (read.status != Status.OK) return Collections.emptySet();
+        Set<String> keys = new LinkedHashSet<>();
+        Map<String, LinkedHashSet<String>> tracks = read.store.accounts.get(account);
+        if (tracks != null) {
+            for (Map.Entry<String, LinkedHashSet<String>> track : tracks.entrySet()) {
+                if (track.getValue().size() >= threshold) keys.add(track.getKey());
+            }
+        }
+        return keys.isEmpty()
+                ? Collections.emptySet()
+                : Collections.unmodifiableSet(keys);
+    }
+
+    /**
+     * Recorded session counts for every track under {@code account}, in store order.
+     *
+     * <p>Read-only: a missing, malformed, or unreadable store yields an empty array, and the file
+     * is never created or modified. Only counts are returned; raw track identifiers stay private.
+     */
+    synchronized int[] trackPlayCounts(String account) {
+        if (!isValidId(account)) return new int[0];
+        ReadResult read = read();
+        if (read.status != Status.OK) return new int[0];
+        Map<String, LinkedHashSet<String>> tracks = read.store.accounts.get(account);
+        if (tracks == null || tracks.isEmpty()) return new int[0];
+        int[] counts = new int[tracks.size()];
+        int index = 0;
+        for (LinkedHashSet<String> sessions : tracks.values()) {
+            if (index == counts.length) break;
+            counts[index++] = Math.min(sessions.size(), MAX_PER_TRACK);
+        }
+        return counts;
+    }
+
+    /**
+     * Aggregates recorded session counts across every stored account when no account is bound yet.
+     *
+     * <p>The counts of tracks that share a derived track key in different accounts are summed, so a
+     * track repeated by two accounts looks like one hotter track. Read-only: a missing, malformed,
+     * or unreadable store yields an empty array and nothing is created or rewritten.
+     */
+    synchronized int[] allTrackPlayCounts() {
+        ReadResult read = read();
+        if (read.status != Status.OK) return new int[0];
+        LinkedHashMap<String, Integer> merged = new LinkedHashMap<>();
+        for (Map<String, LinkedHashSet<String>> tracks : read.store.accounts.values()) {
+            for (Map.Entry<String, LinkedHashSet<String>> track : tracks.entrySet()) {
+                int sessions = Math.min(track.getValue().size(), MAX_PER_TRACK);
+                Integer previous = merged.get(track.getKey());
+                int total = previous == null ? sessions : previous + sessions;
+                merged.put(track.getKey(), Math.min(total, MAX_PER_TRACK));
+            }
+        }
+        if (merged.isEmpty()) return new int[0];
+        int[] counts = new int[merged.size()];
+        int index = 0;
+        for (Integer total : merged.values()) counts[index++] = total;
+        return counts;
     }
 
     private ReadResult read() {

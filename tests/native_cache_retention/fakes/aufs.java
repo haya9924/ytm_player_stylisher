@@ -6,6 +6,13 @@ public final class aufs {
     public final String c;
     /** Reflected as "f": representation to format map. */
     public final Map<aufr, Object> f;
+    /** Reflected as "a": stored size in bytes; 0 when the fake does not model sizes. */
+    public long size;
+
+    /** Reflected as "a": the stored size in bytes. */
+    public long a() {
+        return size;
+    }
 
     public aufs(String id, Map<aufr, Object> formats) {
         this.c = id;

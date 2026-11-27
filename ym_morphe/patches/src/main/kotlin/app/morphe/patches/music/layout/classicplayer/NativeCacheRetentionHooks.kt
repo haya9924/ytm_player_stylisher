@@ -3,6 +3,7 @@ package app.morphe.patches.music.layout.classicplayer
 import app.morphe.patcher.Fingerprint
 import app.morphe.patcher.extensions.InstructionExtensions.addInstruction
 import app.morphe.patcher.extensions.InstructionExtensions.addInstructions
+import app.morphe.patcher.extensions.InstructionExtensions.replaceInstruction
 import app.morphe.patcher.string
 import com.android.tools.smali.dexlib2.Opcode
 import com.android.tools.smali.dexlib2.iface.instruction.FiveRegisterInstruction
@@ -41,7 +42,7 @@ internal fun installNativeCacheRetentionHooks(apply: Boolean) {
             (alternateSupplier[i + 1] as OneRegisterInstruction).registerA == 0
     }
     val unscopedCall = alternateSupplier.indices.single { i ->
-        alternateSupplier[i].opcode == Opcode.INVOKE_VIRTUAL &&
+        i + 1 < alternateSupplier.size && alternateSupplier[i].opcode == Opcode.INVOKE_VIRTUAL &&
             (alternateSupplier[i] as ReferenceInstruction).reference.toString() == "Laueo;->b()Lsfx;" &&
             alternateSupplier[i + 1].opcode == Opcode.MOVE_RESULT_OBJECT &&
             (alternateSupplier[i + 1] as OneRegisterInstruction).registerA == 0
@@ -104,7 +105,7 @@ internal fun installNativeCacheRetentionHooks(apply: Boolean) {
     provider.addInstruction(returned + 1,
         "invoke-static {v2, v0}, $POLICY->scopedBackend(Ljava/lang/Object;Ljava/lang/Object;)V")
     provider.addInstruction(accountRead, "invoke-static {}, $POLICY->beginScopeRead()V")
-    provider2.addInstruction(unscopedCall + 2, "invoke-static {}, $POLICY->unscopedSupplier()V")
+    provider2.addInstruction(unscopedCall + 2, "invoke-static {v0}, $POLICY->unscopedBackend(Ljava/lang/Object;)V")
     provider2.addInstruction(scopedCall + 2,
         "invoke-static {v1, v0}, $POLICY->scopedBackend(Ljava/lang/Object;Ljava/lang/Object;)V")
     provider2.addInstruction(scopedCall - 2, "invoke-static {}, $POLICY->beginScopeRead()V")
@@ -114,4 +115,46 @@ internal fun installNativeCacheRetentionHooks(apply: Boolean) {
         invoke-static {p0, v2, v0}, $POLICY->$selector(Ljava/lang/Object;Ljava/util/LinkedHashSet;Ljava/lang/String;)Ljava/lang/String;
         move-result-object v0
     """)
+}
+
+/**
+ * Applies the runtime cache budget to both verified `audz` budget implementations.
+ *
+ * <p>The user budget (0 = host default) and an optional test cap (0 = disabled) are resolved at
+ * runtime by {@code resolveCacheBudget}, so this hook never raises the host budget.
+ */
+internal fun installCacheBudgetHook(testCapMiB: Int) {
+    check(testCapMiB in 0..256) { "Test cache budget cap must be in 0..256 MiB" }
+
+    val shared = Fingerprint(definingClass = "Lauea;", name = "a", returnType = "J",
+        parameters = listOf("J")).method
+    check(shared.implementation!!.registerCount == 3)
+    val sharedReturns = shared.implementation!!.instructions.withIndex()
+        .filter { it.value.opcode == Opcode.RETURN_WIDE }
+    check(sharedReturns.size == 1) { "Unexpected Lauea.a return count: ${sharedReturns.size}" }
+    check((sharedReturns.single().value as OneRegisterInstruction).registerA == 0)
+    sharedReturns.asReversed().forEach { (idx, _) ->
+        shared.replaceInstruction(idx, "const/16 v2, $testCapMiB")
+        shared.addInstructions(idx + 1, """
+            invoke-static/range {v0 .. v2}, $POLICY->resolveCacheBudget(JI)J
+            move-result-wide v0
+            return-wide v0
+        """)
+    }
+
+    val scoped = Fingerprint(definingClass = "Lauec;", name = "a", returnType = "J",
+        parameters = listOf("J")).method
+    check(scoped.implementation!!.registerCount == 14)
+    val scopedReturns = scoped.implementation!!.instructions.withIndex()
+        .filter { it.value.opcode == Opcode.RETURN_WIDE }
+    check(scopedReturns.size == 2) { "Unexpected Lauec.a return count: ${scopedReturns.size}" }
+    check(scopedReturns.all { (it.value as OneRegisterInstruction).registerA == 11 })
+    scopedReturns.asReversed().forEach { (idx, _) ->
+        scoped.replaceInstruction(idx, "const/16 v13, $testCapMiB")
+        scoped.addInstructions(idx + 1, """
+            invoke-static/range {v11 .. v13}, $POLICY->resolveCacheBudget(JI)J
+            move-result-wide v11
+            return-wide v11
+        """)
+    }
 }

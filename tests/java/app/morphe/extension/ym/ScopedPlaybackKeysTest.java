@@ -63,6 +63,7 @@ public final class ScopedPlaybackKeysTest {
         invalidInputIsRejected();
         reservedPrefixIsRejected();
         nothingMutableOrRawIsRetained();
+        partialDerivationsMatchDerive();
 
         // HmacSHA256 must exist on every supported JVM; skip nothing silently.
         check(derive(SECRET, "a", "t", "s") != null, "HmacSHA256 must be available");
@@ -289,6 +290,54 @@ public final class ScopedPlaybackKeysTest {
         different(before.account, after.account, "derivation follows the supplied secret bytes");
         equal(before.session, keys.session, "earlier result is unaffected by later mutation");
         check(Arrays.equals(SECRET, secret(0)), "test secret constant is unchanged");
+    }
+
+    /** The partial derivations used for hydration must match the full derivation exactly. */
+    private static void partialDerivationsMatchDerive() {
+        String[][] ids = {
+            {"acct", "track", "session"},
+            {"a", "b", "c"},
+            {"\u65e5\u672c\u8a9e", "\u66f2 \ud83c\udfb5", "\uc138\uc158"},
+            {"x".repeat(QualifiedPlayCounter.MAX_ID_BYTES),
+                "y".repeat(QualifiedPlayCounter.MAX_ID_BYTES), "s"},
+        };
+        for (String[] id : ids) {
+            Keys full = derive(SECRET, id[0], id[1], id[2]);
+            equal(ScopedPlaybackKeys.deriveAccountKey(SECRET, id[0]), full.account,
+                    "deriveAccountKey matches derive for " + Arrays.toString(id));
+            equal(ScopedPlaybackKeys.deriveTrackKey(SECRET, id[0], id[1]), full.track,
+                    "deriveTrackKey matches derive for " + Arrays.toString(id));
+            // The account key is independent of track/session, the track key of session.
+            equal(ScopedPlaybackKeys.deriveAccountKey(SECRET, id[0]), full.account,
+                    "account key ignores track and session");
+            equal(ScopedPlaybackKeys.deriveTrackKey(SECRET, id[0], id[1]), full.track,
+                    "track key ignores session");
+        }
+        // A different installation secret yields different partial keys.
+        different(ScopedPlaybackKeys.deriveAccountKey(SECRET, "acct"),
+                ScopedPlaybackKeys.deriveAccountKey(OTHER_SECRET, "acct"),
+                "account key is installation-bound");
+        different(ScopedPlaybackKeys.deriveTrackKey(SECRET, "acct", "track"),
+                ScopedPlaybackKeys.deriveTrackKey(OTHER_SECRET, "acct", "track"),
+                "track key is installation-bound");
+
+        // Invalid input is rejected by the partial helpers under the same rules.
+        check(ScopedPlaybackKeys.deriveAccountKey(null, "acct") == null, "null secret account");
+        check(ScopedPlaybackKeys.deriveAccountKey(new byte[31], "acct") == null, "short secret account");
+        check(ScopedPlaybackKeys.deriveAccountKey(new byte[33], "acct") == null, "long secret account");
+        check(ScopedPlaybackKeys.deriveAccountKey(SECRET, null) == null, "null account");
+        check(ScopedPlaybackKeys.deriveAccountKey(SECRET, "") == null, "empty account");
+        check(ScopedPlaybackKeys.deriveAccountKey(SECRET, "PRIMORDIAL-acct") == null,
+                "reserved prefix account");
+
+        check(ScopedPlaybackKeys.deriveTrackKey(null, "acct", "track") == null, "null secret track");
+        check(ScopedPlaybackKeys.deriveTrackKey(new byte[31], "acct", "track") == null,
+                "short secret track");
+        check(ScopedPlaybackKeys.deriveTrackKey(SECRET, null, "track") == null, "null track account");
+        check(ScopedPlaybackKeys.deriveTrackKey(SECRET, "acct", null) == null, "null track");
+        check(ScopedPlaybackKeys.deriveTrackKey(SECRET, "acct", "  ") == null, "blank track");
+        check(ScopedPlaybackKeys.deriveTrackKey(SECRET, "PRIMORDIAL-acct", "track") == null,
+                "reserved prefix track account");
     }
 
     private static String hex(byte[] bytes) {

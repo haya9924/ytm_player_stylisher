@@ -5,14 +5,16 @@ import app.morphe.patcher.extensions.InstructionExtensions.addInstruction
 import app.morphe.patcher.patch.ApkFileType
 import app.morphe.patcher.patch.AppTarget
 import app.morphe.patcher.patch.Compatibility
+import app.morphe.patcher.patch.booleanOption
 import app.morphe.patcher.patch.patch
 import app.morphe.patcher.patch.resourceXml
+import app.morphe.patcher.patch.stringOption
 
 /** YouTube Music 9.30.53 player styling, shipped without the upstream patch collection. */
 @Suppress("unused")
 val classicPlayerPatch = patch(
     name = "ym_morphe",
-    description = "Restyles the fullscreen player and adds an option to hide the audio/video switch.",
+    description = "Restyles the player and adds an optional artwork-based app theme.",
     default = false,
 ) {
     compatibleWith(
@@ -26,9 +28,96 @@ val classicPlayerPatch = patch(
 
     extendWith("extensions/ym.mpe")
 
+    val lowDataResume by booleanOption(
+        key = "lowDataPlaybackResume",
+        default = false,
+        title = "前回の再生を少ない通信で再開する（実験的）",
+        description = "端末のキューを一時停止で復元した場合、追加のサーバーキュー取得を省きます。",
+    )
+    val dataSavingDiagnostics by booleanOption(
+        key = "dataSavingDiagnostics",
+        default = false,
+        title = "データ節約を診断する（開発用）",
+        description = "通信を変更せず、先読みの制限と復元後のキュー取得について固定メッセージを記録します。",
+    )
+
+    val cacheDiagnostics by booleanOption(
+        key = "cacheRetentionDiagnostics",
+        default = false,
+        title = "再生・キャッシュ診断（開発用）",
+        description = "観測用ログだけを追加します。再生回数の記録やキャッシュ設定は変更しません。",
+    )
+
+    val experimentalRecording by booleanOption(
+        key = "experimentalScopedPlayRecording",
+        default = true,
+        title = "曲別の再生回数を端末内に記録（実験的）",
+        description = "対応する通常再生だけを記録します。音声の保持や通信設定は変更しません。",
+    )
+
+    val capacityRetention by booleanOption(
+        key = "experimentalNativeCacheRetention",
+        default = true,
+        title = "よく聴く曲の標準キャッシュを優先保持（実験的）",
+        description = "曲別の再生記録が必要です。標準キャッシュの容量不足時だけ削除候補を調整します。",
+    )
+
+    val sharedCacheSupplierProbe by booleanOption(
+        key = "sharedCacheSupplierProbe",
+        default = false,
+        title = "共有キャッシュ供給元を観測する（開発用）",
+        description = "観測用の記録だけを追加します。キャッシュの内容・容量・選択結果は変更しません。",
+    )
+
+    val testCacheBudgetMiB by stringOption(
+        key = "experimentalTestCacheBudgetMiB",
+        default = "0",
+        title = "テスト用キャッシュ上限 MiB（開発・クローン検証用、0=無効）",
+        description = "0 以外を指定した場合のみ、標準キャッシュの容量上限を min(標準上限, 指定 MiB) に制限します。実機検証用クローン以外では 0 のままにしてください。",
+    )
+
     execute {
+        val capMiB = (testCacheBudgetMiB ?: "0").trim().toIntOrNull()
+            ?: error("experimentalTestCacheBudgetMiB must be an integer 0..256")
+        check(capMiB in 0..256) { "experimentalTestCacheBudgetMiB must be in 0..256" }
+
+        if (sharedCacheSupplierProbe == true) {
+            // The probe is mutually exclusive with every recording/retention hook and with the
+            // test budget cap: it must only observe the shared cache supplier.
+            check(cacheDiagnostics != true) {
+                "sharedCacheSupplierProbe cannot be combined with cacheRetentionDiagnostics"
+            }
+            check(capMiB == 0) {
+                "experimentalTestCacheBudgetMiB cannot be combined with sharedCacheSupplierProbe"
+            }
+            installSharedCacheSupplierProbe()
+        } else {
+            check(capacityRetention != true || experimentalRecording == true) {
+                "Native cache retention requires scoped playback recording"
+            }
+            if (dataSavingDiagnostics == true) enableDataSavingDiagnostics()
+            if (lowDataResume == true || dataSavingDiagnostics == true) {
+                installLowDataPlaybackResumeHook(save = lowDataResume == true, diagnostics = dataSavingDiagnostics == true)
+            }
+            if (cacheDiagnostics == true) {
+                installCacheRetentionDiagnosticHooks()
+                installPlaybackRestoreDiagnosticHooks()
+            }
+            if (experimentalRecording == true) installScopedPlayRecordingHooks()
+            if (experimentalRecording == true && (capacityRetention == true || cacheDiagnostics == true)) {
+                installNativeCacheRetentionHooks(apply = capacityRetention == true)
+            }
+            if ((experimentalRecording == true && capacityRetention == true) || capMiB > 0) {
+                installCacheBudgetHook(capMiB)
+            }
+        }
         installPlaybackPriorityHooks()
         installAudioVideoPillHooks()
+        installArtworkPaletteHooks()
+        installArtworkBitmapHooks()
+        installArtworkLithoHooks()
+        installArtworkSurfaceResources()
+        installPlayerActionMenuHook()
         // The Settings activity starts preference intents. Make our intent explicit at runtime
         // so it works with Android 14+ and with arbitrary cloned package names.
         Fingerprint(

@@ -68,12 +68,19 @@ jobs:
           tests=tests/java/app/morphe/extension/ym
           classes="$(mktemp -d)"
           trap 'rm -rf "$classes"' EXIT
-          javac --release 17 -d "$classes" \
-            "$src"/{ArtworkBlur,ArtworkCrop,CacheRetentionCriteria,PlaybackPriorityState}.java \
-            "$tests"/{ArtworkBlur,ArtworkCrop,CacheRetentionCriteria,PlaybackPriorityState}Test.java
-          for test in ArtworkBlur ArtworkCrop CacheRetentionCriteria PlaybackPriorityState; do
+          suites=(ArtworkBlur ArtworkCrop ArtworkPalette CacheRetentionCriteria CacheSavingsEstimator PlaybackPriorityState QualifiedPlayCounter PlaybackSessionTracker CacheEvictionPreference ScopedPlaybackKeys)
+          sources=()
+          for test in "${suites[@]}"; do
+            sources+=("$src/$test.java" "$tests/${test}Test.java")
+          done
+          javac --release 17 -d "$classes" "${sources[@]}"
+          for test in "${suites[@]}"; do
             java -cp "$classes" "app.morphe.extension.ym.${test}Test"
           done
+
+      - name: Test native cache selection
+        shell: bash
+        run: bash tests/native_cache_retention/run.sh
 
       - name: Install Android SDK packages
         shell: bash
@@ -86,6 +93,49 @@ jobs:
           fi
           yes | "$sdkmanager" --licenses > /dev/null || true
           "$sdkmanager" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Prefer the Maven Central mirror on CI
+        shell: bash
+        run: |
+          set -euo pipefail
+          init_dir="${GRADLE_USER_HOME:-$HOME/.gradle}/init.d"
+          mkdir -p "$init_dir"
+          cat > "$init_dir/ym-central-mirror.gradle" <<'GRADLE'
+          def addCentralMirror = { repositories ->
+              repositories.maven {
+                  name = 'MavenCentralMirror'
+                  url = uri('https://maven-central.storage-download.googleapis.com/maven2')
+                  content {
+                      excludeGroupByRegex('com\\.android(\\..*)?')
+                      excludeGroupByRegex('androidx(\\..*)?')
+                  }
+              }
+          }
+          gradle.beforeSettings { settings ->
+              addCentralMirror(settings.pluginManagement.repositories)
+              addCentralMirror(settings.dependencyResolutionManagement.repositories)
+          }
+          // Patch projects use settings-level repositories. Don't replace them
+          // with a project-level mirror, which would hide Google and JitPack.
+          gradle.beforeProject { project ->
+              if (project.rootProject.name == 'morphe-patches-gradle-plugin' ||
+                      project.rootProject.name == 'morphe-patcher') {
+                  addCentralMirror(project.repositories)
+                  project.afterEvaluate {
+                      // An HTTP 429 from Maven Central is fatal in Gradle rather than a
+                      // miss. Resolve these Google-only dependencies exclusively in Google Maven.
+                      def googleMaven = project.repositories.findByName('Google') ?: project.repositories.google()
+                      project.repositories.exclusiveContent {
+                          forRepositories(googleMaven)
+                          filter {
+                              includeGroupByRegex('com\\.android(\\..*)?')
+                              includeGroupByRegex('androidx(\\..*)?')
+                          }
+                      }
+                  }
+              }
+          }
+          GRADLE
 
       # Settings plugins are resolved before the main build is configured.
       # Publish this pinned plugin and its marker into the runner's local Maven repo.

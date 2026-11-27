@@ -44,5 +44,9 @@ public final class PlaybackNetworkPolicy {
     public static void onUrgent(Object owner) { STATE.onUrgent(owner, SystemClock.elapsedRealtime()); }
     public static void onPlaying(Object owner) { STATE.onPlaying(owner, SystemClock.elapsedRealtime()); }
     public static void onTerminal(Object owner) { STATE.onTerminal(owner); }
-    public static boolean shouldSuppress() { return STATE.shouldSuppress(SystemClock.elapsedRealtime()); }
+    public static boolean shouldSuppress() {
+        boolean suppress = STATE.shouldSuppress(SystemClock.elapsedRealtime());
+        DataSavingDiagnostics.onEligiblePrefetch(!suppress);
+        return suppress;
+    }
 }

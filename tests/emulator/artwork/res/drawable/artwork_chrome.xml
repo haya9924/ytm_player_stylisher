@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Role 1 (chrome) over the stock transparent stand-in. -->
+<app.morphe.extension.ym.ArtworkSurfaceDrawable
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@android:color/transparent"
+    android:level="1" />

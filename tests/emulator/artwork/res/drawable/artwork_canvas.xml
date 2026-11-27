@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Role 0 (canvas) with a themed framework drawable, like the patch-generated
+     res/drawable/ym_artwork_main.xml (?attr/musicBackgroundColor). -->
+<app.morphe.extension.ym.ArtworkSurfaceDrawable
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="?android:attr/colorBackground"
+    android:color="@color/artwork_test_stock_canvas"
+    android:level="0" />

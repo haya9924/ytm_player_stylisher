@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Deliberately non-dark stock colours: any of them showing up in a tinted
+         state means the wrapper fell back to the stock drawable. -->
+    <color name="artwork_test_stock_canvas">#ff336699</color>
+    <color name="artwork_test_stock_raised">#ffff00ff</color>
+</resources>

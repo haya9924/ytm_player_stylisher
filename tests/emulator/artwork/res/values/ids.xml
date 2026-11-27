@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Ids looked up by the production extension through getIdentifier(). -->
+    <item name="player_thumbnail" type="id" />
+    <item name="mini_player_view_pager_container" type="id" />
+    <item name="swipeable_mini_player_thumbnail" type="id" />
+
+    <!-- Harness-only ids. -->
+    <item name="artwork_gradient" type="id" />
+    <item name="artwork_test_status" type="id" />
+    <item name="artwork_surface_canvas" type="id" />
+    <item name="artwork_surface_chrome" type="id" />
+    <item name="artwork_surface_raised" type="id" />
+    <item name="artwork_surface_rounded" type="id" />
+    <item name="artwork_surface_transparent" type="id" />
+    <item name="artwork_surface_default_level" type="id" />
+</resources>
